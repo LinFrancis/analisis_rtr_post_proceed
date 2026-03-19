@@ -22,7 +22,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Custom CSS (igual que antes) ─────────────────────────────────
+# ── Custom CSS ───────────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -111,7 +111,7 @@ def interpret_q3(val):
 
 
 # ══════════════════════════════════════════════════════════════════
-#  FUNCIONES PARA EL ANÁLISIS DE Q‑METHODOLOGY (ACTUALIZADAS)
+#  FUNCIONES PARA EL ANÁLISIS DE Q‑METHODOLOGY (NUEVAS)
 # ══════════════════════════════════════════════════════════════════
 
 def varimax(loadings, normalize=True, eps=1e-6):
@@ -161,45 +161,33 @@ def load_q_from_excel(file, question):
     # Leer DATASET para obtener las afirmaciones en orden
     df_dataset = pd.read_excel(file, sheet_name="DATASET")
     df_dataset.columns = df_dataset.columns.str.strip()
-    # Asegurar que las columnas de texto no tengan espacios extras
     statements = df_dataset["Statement"].dropna().tolist()
     
     # Mapeo de pregunta a nombre de hoja
     sheet_map = {"Q1": "QUESTION 1", "Q2": "QUESTION 2", "Q3": "QUESTION 3"}
     sheet_name = sheet_map[question]
     
-    # Leer la hoja de respuestas individuales
-    df_resp = pd.read_excel(file, sheet_name=sheet_name, header=None, skiprows=2)  # Saltamos las dos primeras filas de título
-    # La estructura: primera columna = Category, segunda = Statement, tercera = Sub-category, luego columnas de partners
-    # Asumimos que las columnas de partners empiezan en la columna D (índice 3)
-    # Tomamos las filas hasta donde hay statements (misma longitud que statements)
-    n_statements = len(statements)
-    df_resp = df_resp.iloc[:n_statements, 3:]  # Solo datos numéricos de partners
+    # Leer la hoja de respuestas individuales con header=1 (fila 2 tiene nombres de partners)
+    df_resp = pd.read_excel(file, sheet_name=sheet_name, header=1)
+    # Las columnas esperadas: Category, Statement, Sub-category, luego los partners
+    # Nos quedamos con las columnas a partir de la cuarta (índice 3)
+    partner_cols = df_resp.columns[3:]
+    df_partners = df_resp[partner_cols].copy()
     
-    # Los nombres de los partners están en la fila 1 (índice 1) del Excel original, pero como hicimos skiprows=2,
-    # la fila con los nombres se perdió. Mejor leer la hoja completa y luego procesar.
-    # Vamos a leer con header=0 para obtener los nombres de columna.
-    df_resp_full = pd.read_excel(file, sheet_name=sheet_name, header=1)  # La fila 1 tiene los nombres de los partners
-    # Ahora df_resp_full tiene como columnas: Category, Statement, Sub-category, y luego los nombres de partners.
-    # Filtramos las filas hasta n_statements
-    df_resp_full = df_resp_full.iloc[:n_statements]
-    # Seleccionamos solo las columnas que son de partners (a partir de la cuarta columna)
-    partner_cols = df_resp_full.columns[3:]
-    df_partners = df_resp_full[partner_cols].copy()
+    # Asegurar que el número de filas coincida con el número de afirmaciones
+    df_partners = df_partners.iloc[:len(statements)]
     
     # Reemplazar "NR" por NaN y convertir a numérico
     df_partners = df_partners.replace("NR", np.nan)
     df_partners = df_partners.apply(pd.to_numeric, errors='coerce')
     
     # Establecer el índice como las afirmaciones
-    df_partners.index = statements
+    df_partners.index = statements[:len(df_partners)]
     
     # Eliminar participantes (columnas) que tengan algún NaN (en Q methodology no se permiten missing)
-    # También se podría imputar, pero es más limpio excluir.
     participantes_validos = df_partners.columns[df_partners.isna().sum() == 0]
     df_clean = df_partners[participantes_validos]
     
-    # Mostrar información sobre eliminados
     n_eliminados = len(df_partners.columns) - len(participantes_validos)
     if n_eliminados > 0:
         st.info(f"Se eliminaron {n_eliminados} participantes por tener valores faltantes (NR).")
@@ -209,7 +197,12 @@ def load_q_from_excel(file, question):
 
 def perform_q_analysis(q_data, n_factors=None, rotation='varimax'):
     """
-    Realiza análisis factorial de Q (igual que antes, pero adaptado para recibir q_data).
+    Realiza análisis factorial de Q.
+    Parámetros:
+        q_data: DataFrame (afirmaciones × participantes)
+        n_factors: número de factores a extraer (None = automático por eigenvalue>1)
+        rotation: método de rotación ('varimax' o None)
+    Retorna diccionario con resultados.
     """
     sorts = q_data.T  # shape: (n_participantes, n_afirmaciones)
     n_participants, n_statements = sorts.shape
@@ -313,7 +306,7 @@ def perform_q_analysis(q_data, n_factors=None, rotation='varimax'):
 
 
 # ══════════════════════════════════════════════════════════════════
-#  DATA LOADING & PROCESSING (original, sin cambios)
+#  DATA LOADING & PROCESSING (original)
 # ══════════════════════════════════════════════════════════════════
 
 @st.cache_data
@@ -373,7 +366,7 @@ def kpi_html(value, label, sublabel="", color="#4e6af0"):
 
 
 # ══════════════════════════════════════════════════════════════════
-#  SIDEBAR (sin cambios)
+#  SIDEBAR
 # ══════════════════════════════════════════════════════════════════
 
 with st.sidebar:
@@ -388,7 +381,7 @@ with st.sidebar:
         st.warning("Low threshold should be < High threshold")
 
 # ══════════════════════════════════════════════════════════════════
-#  LANDING PAGE (sin cambios)
+#  LANDING PAGE
 # ══════════════════════════════════════════════════════════════════
 
 if uploaded is None:
@@ -401,14 +394,10 @@ if uploaded is None:
             and generates interactive analyses across eight diagnostic dimensions to identify strengths,
             gaps, bottlenecks, and priorities in resilience enabling conditions.
         </p>
-        <p style="color:#8892a8; max-width:580px; margin:1.5rem auto; line-height:1.7;">
-            <b>New:</b> Use the <b>🧩 Q‑Methodology</b> tab to perform factor analysis directly from the
-            individual responses in the QUESTION 1, 2, or 3 sheets.
-        </p>
     </div>""", unsafe_allow_html=True)
     st.stop()
 
-# ── Load & process survey data ───────────────────────────────────
+# ── Load & process ───────────────────────────────────────────────
 raw_df = load_data(uploaded)
 df = compute_metrics(raw_df)
 
@@ -429,7 +418,7 @@ if fdf.empty:
 fdf["Typology"] = fdf.apply(lambda r: classify_typology(r, t_high, t_low), axis=1)
 
 # ══════════════════════════════════════════════════════════════════
-#  TABS (se añade la nueva pestaña de Q‑Methodology)
+#  TABS (ahora 10 pestañas: 0-8 originales + nueva Q-Methodology en índice 8, Glossary pasa a 9)
 # ══════════════════════════════════════════════════════════════════
 
 tabs = st.tabs([
@@ -446,7 +435,7 @@ tabs = st.tabs([
 ])
 
 # ──────────────────────────────────────────────────────────────────
-#  TAB 0 — INTRODUCTION (original, solo se añadió una línea)
+#  TAB 0 — INTRODUCTION (actualizada con explicación de Q‑methodology)
 # ──────────────────────────────────────────────────────────────────
 with tabs[0]:
     st.markdown("# 🌍 Introduction to this Diagnostic Tool")
@@ -554,85 +543,700 @@ with tabs[0]:
     <b>📈 Variability</b> — Shows where partners disagreed most, signaling contested or context-dependent factors.<br>
     <b>🎯 Priority & Capacity</b> — Ranks conditions by urgency and measures adaptive efficiency.<br>
     <b>🗂 Data Explorer</b> — Full searchable dataset with download options.<br>
-    <b>🧩 Q‑Methodology</b> — Perform factor analysis on individual partner responses (from QUESTION sheets).<br>
+    <b>🧩 Q‑Methodology</b> — Performs factor analysis on individual partner responses to identify shared viewpoints (factors). Select Q1, Q2, or Q3 and run the analysis to obtain factor loadings, z-scores, and distinguishing statements.<br>
     <b>📖 Glossary & Scales</b> — Complete reference for all metrics, scales, and survey questions.
     </div>
     """, unsafe_allow_html=True)
 
 
 # ──────────────────────────────────────────────────────────────────
-#  TABS 1 a 7 (originales) - se mantienen exactamente igual
-#  Por brevedad se omite el código, pero en tu archivo deben estar completos.
-#  Asegúrate de copiar aquí todo el contenido de las pestañas 1 a 7 desde tu código original.
+#  TAB 1 — OVERVIEW (original, sin cambios)
 # ──────────────────────────────────────────────────────────────────
+with tabs[1]:
+    st.markdown('<div class="sec-head">Global Averages</div>', unsafe_allow_html=True)
 
-# (Aquí iría el código de las pestañas 1 a 7, que ya tienes. No lo repito para no alargar,
-#  pero en la entrega final debe estar completo.)
+    st.markdown("""
+    <div class="explain-box">
+    <b>What is this?</b> These cards show the overall mean across all assessed enabling conditions for each
+    survey dimension. They answer: <i>On average, how observed are enabling conditions (Q1)? How critical
+    are they considered (Q2)? And to what extent have gaps been resolved (Q3)?</i><br><br>
+    <b>How to read it:</b> Compare Q1, Q2, and Q3 side by side. A large difference between Q2 and Q1 signals
+    that conditions are seen as more important than currently available. The Gap (Q2−Q1) quantifies this mismatch.
+    Efficiency (Q3/Q2) shows what proportion of the critical need is being addressed.
+    </div>
+    """, unsafe_allow_html=True)
+
+    avg_q1 = fdf["Q1 Mean"].mean()
+    avg_q2 = fdf["Q2 Mean"].mean()
+    avg_q3 = fdf["Q3 Mean"].mean()
+    avg_gap = fdf["Gap"].mean()
+    avg_eff = fdf["Efficiency"].mean()
+
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.markdown(kpi_html(f"{avg_q1:.2f}", "Q1 Observation", "Scale 0–4", COLORS["q1"]), unsafe_allow_html=True)
+    k2.markdown(kpi_html(f"{avg_q2:.2f}", "Q2 Criticality", "Scale 0–5", COLORS["q2"]), unsafe_allow_html=True)
+    k3.markdown(kpi_html(f"{avg_q3:.2f}", "Q3 Resolution", "Scale 0–5", COLORS["q3"]), unsafe_allow_html=True)
+    k4.markdown(kpi_html(f"{avg_gap:.2f}", "Avg Gap", "Q2 − Q1", COLORS["accent"]), unsafe_allow_html=True)
+    k5.markdown(kpi_html(f"{avg_eff:.0%}", "Avg Efficiency", "Q3 / Q2", "#1a1f36"), unsafe_allow_html=True)
+
+    # Auto-interpretation
+    st.markdown(f"""
+    <div class="insight-box">
+    <b>🔍 Interpretation:</b> On average, enabling conditions are <b>{interpret_q1(avg_q1)}</b>
+    (Q1 = {avg_q1:.2f}/4). Partners rate them as <b>{interpret_q2(avg_q2)}</b> for success
+    (Q2 = {avg_q2:.2f}/5). Gaps have been <b>{interpret_q3(avg_q3)}</b>
+    (Q3 = {avg_q3:.2f}/5). The system is currently addressing <b>{avg_eff:.0%}</b> of its critical needs.
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Radar by Category
+    st.markdown('<div class="sec-head">Radar Chart — Category Comparison</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="explain-box">
+    <b>What is this?</b> A radar (spider) chart showing the average Q1, Q2, and Q3 for each of the four
+    enabling condition categories. Each axis represents one category; each colored polygon represents
+    one survey dimension.<br><br>
+    <b>How to read it:</b> If the Q2 polygon (red, criticality) extends much further than Q1 (blue, observation),
+    it means that category's conditions are seen as critical but insufficiently present. If Q3 (green, resolution)
+    is close to Q2, gaps are being well addressed. Look for categories where the polygons diverge most — those
+    are the areas with the greatest tension between need and reality.
+    </div>
+    """, unsafe_allow_html=True)
+
+    cat_avg = fdf.groupby("Category")[["Q1 Mean", "Q2 Mean", "Q3 Mean"]].mean().reset_index()
+    fig_radar = go.Figure()
+    cats_list = cat_avg["Category"].tolist()
+    for col, color, name in [
+        ("Q1 Mean", COLORS["q1"], "Q1 — Observation (0–4)"),
+        ("Q2 Mean", COLORS["q2"], "Q2 — Criticality (0–5)"),
+        ("Q3 Mean", COLORS["q3"], "Q3 — Resolution (0–5)"),
+    ]:
+        vals = cat_avg[col].tolist()
+        vals.append(vals[0])
+        fig_radar.add_trace(go.Scatterpolar(
+            r=vals, theta=cats_list + [cats_list[0]], name=name,
+            line=dict(color=color, width=2.5), fill="toself",
+            fillcolor=f"rgba({int(color[1:3],16)},{int(color[3:5],16)},{int(color[5:7],16)},0.08)",
+        ))
+    fig_radar.update_layout(
+        polar=dict(radialaxis=dict(visible=True, range=[0, 5], tickfont=dict(size=10)),
+                   angularaxis=dict(tickfont=dict(size=10))),
+        font=dict(family="DM Sans", size=12),
+        margin=dict(l=80, r=80, t=50, b=50), height=480, paper_bgcolor="rgba(0,0,0,0)",
+    )
+    st.plotly_chart(fig_radar, use_container_width=True)
+
+    # Radar auto-interpretation
+    worst_cat = cat_avg.loc[(cat_avg["Q2 Mean"] - cat_avg["Q1 Mean"]).idxmax()]
+    best_cat = cat_avg.loc[(cat_avg["Q2 Mean"] - cat_avg["Q1 Mean"]).idxmin()]
+    st.markdown(f"""
+    <div class="insight-box">
+    <b>🔍 Interpretation:</b> The category with the largest gap between criticality and observation is
+    <b>{worst_cat['Category']}</b> (Q2−Q1 = {worst_cat['Q2 Mean'] - worst_cat['Q1 Mean']:.2f}), meaning
+    these conditions are seen as highly important but less present in practice. The smallest gap is in
+    <b>{best_cat['Category']}</b> (Q2−Q1 = {best_cat['Q2 Mean'] - best_cat['Q1 Mean']:.2f}), where
+    availability better matches perceived need.
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Grouped bar
+    st.markdown('<div class="sec-head">Category Comparison — Bar Chart</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="explain-box">
+    <b>What is this?</b> The same data as the radar but displayed as grouped bars for easier numeric comparison.
+    Each category has three bars: blue (Q1, observed), red (Q2, critical), green (Q3, resolved).<br><br>
+    <b>How to read it:</b> The gap between the red bar (Q2) and blue bar (Q1) is the unmet need. The green bar
+    (Q3) shows how much of that need has been addressed. If the green bar is shorter than the red bar,
+    significant gaps remain.
+    </div>
+    """, unsafe_allow_html=True)
+
+    fig_bar_ov = go.Figure()
+    for col, color, name in [
+        ("Q1 Mean", COLORS["q1"], "Q1 — Observation"),
+        ("Q2 Mean", COLORS["q2"], "Q2 — Criticality"),
+        ("Q3 Mean", COLORS["q3"], "Q3 — Resolution"),
+    ]:
+        fig_bar_ov.add_trace(go.Bar(
+            x=cat_avg["Category"], y=cat_avg[col], name=name, marker_color=color,
+            text=cat_avg[col].round(2), textposition="outside",
+        ))
+    fig_bar_ov.update_layout(barmode="group", yaxis=dict(range=[0, 5.5]))
+    st.plotly_chart(plotly_defaults(fig_bar_ov), use_container_width=True)
+
 
 # ──────────────────────────────────────────────────────────────────
-#  TAB 8 — Q‑METHODOLOGY (NUEVA, SIN CARGA ADICIONAL)
+#  TAB 2 — GAP ANALYSIS (original)
+# ──────────────────────────────────────────────────────────────────
+with tabs[2]:
+    st.markdown('<div class="sec-head">Gap Analysis (Q2 − Q1)</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="explain-box">
+    <b>What is this analysis?</b> The Gap measures the difference between how critical a condition is perceived
+    to be (Q2) and how widely it has been observed in practice (Q1). It answers: <i>"Where is the greatest
+    mismatch between what is needed and what exists?"</i><br><br>
+    <b>Formula:</b> Gap = Q2 Mean − Q1 Mean<br><br>
+    <b>How to read it:</b> Positive gaps mean the condition is more important than available — a deficit.
+    Larger bars = bigger unmet needs. Negative gaps (rare) would mean a condition is more available than critical.
+    The chart ranks all conditions from smallest to largest gap.<br><br>
+    <b>⚠️ Critical eye:</b> Note that Q1 uses a 0–4 scale and Q2 uses a 0–5 scale, so some gap is structurally
+    expected. Focus on <i>relative</i> ranking (which conditions have the biggest gaps compared to others)
+    rather than absolute values.
+    </div>
+    """, unsafe_allow_html=True)
+
+    gap_sorted = fdf.sort_values("Gap", ascending=True)
+    bar_colors = [COLORS["q2"] if g > 0 else COLORS["q3"] for g in gap_sorted["Gap"]]
+    fig_gap = go.Figure(go.Bar(
+        y=gap_sorted["Main Idea"], x=gap_sorted["Gap"], orientation="h",
+        marker_color=bar_colors, text=gap_sorted["Gap"].round(2), textposition="outside",
+    ))
+    fig_gap.update_layout(yaxis=dict(tickfont=dict(size=10)), xaxis_title="Gap (Q2 − Q1)")
+    st.plotly_chart(plotly_defaults(fig_gap, height=max(420, len(gap_sorted) * 22)), use_container_width=True)
+
+    # Auto-interpretation
+    top3_gap = fdf.nlargest(3, "Gap")
+    bot3_gap = fdf.nsmallest(3, "Gap")
+    st.markdown(f"""
+    <div class="warn-box">
+    <b>⚠️ Largest gaps (highest unmet need):</b><br>
+    {"<br>".join([f'• <b>{r["Main Idea"]}</b> — Gap = {r["Gap"]:.2f} (Q2={r["Q2 Mean"]:.2f}, Q1={r["Q1 Mean"]:.2f}). Partners see this as {interpret_q2(r["Q2 Mean"])} but it was {interpret_q1(r["Q1 Mean"])}.' for _, r in top3_gap.iterrows()])}
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown(f"""
+    <div class="ok-box">
+    <b>✅ Smallest gaps (best alignment):</b><br>
+    {"<br>".join([f'• <b>{r["Main Idea"]}</b> — Gap = {r["Gap"]:.2f}. Availability is closer to matching its perceived importance.' for _, r in bot3_gap.iterrows()])}
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Top 10 bottlenecks table
+    st.markdown('<div class="sec-head">Top 10 Bottleneck Gaps</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="explain-box">
+    <b>What is this?</b> The 10 conditions with the largest Gap, shown with their Resolution Gap and System Stress.
+    These are the most pressing areas where action is needed.
+    </div>
+    """, unsafe_allow_html=True)
+    top10 = fdf.nlargest(10, "Gap")[["Category", "Sub Categories", "Main Idea", "Q1 Mean", "Q2 Mean", "Q3 Mean", "Gap", "Resolution Gap", "System Stress"]]
+    st.dataframe(
+        top10.style.format({c: "{:.2f}" for c in ["Q1 Mean", "Q2 Mean", "Q3 Mean", "Gap", "Resolution Gap", "System Stress"]}),
+        use_container_width=True, hide_index=True,
+    )
+
+    # Resolution Gap
+    st.markdown('<div class="sec-head">Resolution Gap (Q2 − Q3)</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="explain-box">
+    <b>What is this?</b> The Resolution Gap measures how much of the critical need remains unaddressed.
+    It compares criticality (Q2) with how well challenges have been overcome (Q3).<br><br>
+    <b>Formula:</b> Resolution Gap = Q2 Mean − Q3 Mean<br><br>
+    <b>How to read it:</b> Larger values mean the condition is critical but its challenges have not been
+    sufficiently resolved. Unlike the Gap (Q2−Q1), this focuses on <i>response effectiveness</i> rather than availability.
+    Both Q2 and Q3 use the same 0–5 scale, making this a directly comparable metric.
+    </div>
+    """, unsafe_allow_html=True)
+
+    res_sorted = fdf.sort_values("Resolution Gap", ascending=True)
+    fig_res = go.Figure(go.Bar(
+        y=res_sorted["Main Idea"], x=res_sorted["Resolution Gap"], orientation="h",
+        marker_color=COLORS["accent"], text=res_sorted["Resolution Gap"].round(2), textposition="outside",
+    ))
+    fig_res.update_layout(xaxis_title="Resolution Gap (Q2 − Q3)")
+    st.plotly_chart(plotly_defaults(fig_res, height=max(420, len(res_sorted) * 22)), use_container_width=True)
+
+    # System Stress scatter
+    st.markdown('<div class="sec-head">System Stress Map</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="explain-box">
+    <b>What is this?</b> A scatter plot combining Gap (x-axis) and Resolution Gap (y-axis) with bubble size
+    proportional to System Stress. System Stress = Q2 − (Q1 + Q3)/2: it captures how much criticality
+    exceeds the average of availability and resolution combined.<br><br>
+    <b>How to read it:</b> Points in the <b>upper-right corner</b> are the most stressed — high gap AND
+    poor resolution. These demand urgent, integrated interventions. Points near the origin are more stable.
+    </div>
+    """, unsafe_allow_html=True)
+
+    fig_stress = px.scatter(
+        fdf, x="Gap", y="Resolution Gap", size="System Stress",
+        color="Category", hover_name="Main Idea", color_discrete_sequence=CAT_PALETTE, size_max=24,
+    )
+    fig_stress.update_layout(xaxis_title="Gap (Q2−Q1)", yaxis_title="Resolution Gap (Q2−Q3)")
+    st.plotly_chart(plotly_defaults(fig_stress, 480), use_container_width=True)
+
+    most_stressed = fdf.nlargest(3, "System Stress")
+    st.markdown(f"""
+    <div class="warn-box">
+    <b>🔴 Most stressed conditions:</b><br>
+    {"<br>".join([f'• <b>{r["Main Idea"]}</b> ({r["Category"]}) — Stress = {r["System Stress"]:.2f}. This condition is {interpret_q2(r["Q2 Mean"])} but {interpret_q1(r["Q1 Mean"])}, and gaps have been {interpret_q3(r["Q3 Mean"])}.' for _, r in most_stressed.iterrows()])}
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ──────────────────────────────────────────────────────────────────
+#  TAB 3 — CATEGORIES (original)
+# ──────────────────────────────────────────────────────────────────
+with tabs[3]:
+    st.markdown('<div class="sec-head">Heatmap — Category × Dimension</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="explain-box">
+    <b>What is this?</b> A heatmap showing average values for Q1, Q2, Q3, and Gap by category.
+    Colors range from red (low) through yellow to green (high).<br><br>
+    <b>How to read it:</b> Look for categories with high Q2 (dark green = very critical) but low Q1
+    (red/yellow = not well observed). The Gap column directly shows this mismatch. Categories with
+    uniformly high values across all columns are performing well; those with high Q2 but low Q1/Q3
+    need attention.
+    </div>
+    """, unsafe_allow_html=True)
+
+    heat_data = fdf.groupby("Category")[["Q1 Mean", "Q2 Mean", "Q3 Mean", "Gap"]].mean()
+    fig_heat = go.Figure(go.Heatmap(
+        z=heat_data.values, x=["Q1 Observation", "Q2 Criticality", "Q3 Resolution", "Gap"],
+        y=heat_data.index, colorscale="RdYlGn",
+        text=np.round(heat_data.values, 2), texttemplate="%{text}",
+        textfont=dict(size=13, family="JetBrains Mono"),
+    ))
+    fig_heat.update_layout(yaxis=dict(autorange="reversed"))
+    st.plotly_chart(plotly_defaults(fig_heat, 340), use_container_width=True)
+
+    # Sub-category analysis
+    st.markdown('<div class="sec-head">Sub-Category Breakdown</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="explain-box">
+    <b>What is this?</b> Expand each category to see how its sub-categories compare on Q1, Q2, and Q3.
+    This reveals which specific areas within each category are strongest or weakest.<br><br>
+    <b>How to read it:</b> Within each category, compare the height of the red bars (Q2) to the blue (Q1)
+    and green (Q3) bars. Sub-categories where red towers over blue and green are the internal priority areas.
+    </div>
+    """, unsafe_allow_html=True)
+
+    for cat in sel_cats:
+        with st.expander(f"📂  {cat}", expanded=False):
+            cat_df = fdf[fdf["Category"] == cat]
+            sub_avg = cat_df.groupby("Sub Categories")[["Q1 Mean", "Q2 Mean", "Q3 Mean", "Gap"]].mean().reset_index()
+            fig_sub = go.Figure()
+            for col, color, nm in [
+                ("Q1 Mean", COLORS["q1"], "Q1 — Observation"),
+                ("Q2 Mean", COLORS["q2"], "Q2 — Criticality"),
+                ("Q3 Mean", COLORS["q3"], "Q3 — Resolution"),
+            ]:
+                fig_sub.add_trace(go.Bar(
+                    x=sub_avg["Sub Categories"], y=sub_avg[col], name=nm, marker_color=color,
+                    text=sub_avg[col].round(2), textposition="outside",
+                ))
+            fig_sub.update_layout(barmode="group", yaxis=dict(range=[0, 5.5]), title=cat)
+            st.plotly_chart(plotly_defaults(fig_sub, 380), use_container_width=True)
+
+            # Auto-interpret this category
+            worst_sub = sub_avg.loc[sub_avg["Gap"].idxmax()]
+            best_sub = sub_avg.loc[sub_avg["Gap"].idxmin()]
+            st.markdown(f"""
+            <div class="insight-box">
+            <b>🔍 Within {cat}:</b> The sub-category with the largest gap is <b>{worst_sub['Sub Categories']}</b>
+            (Gap = {worst_sub['Gap']:.2f}), while <b>{best_sub['Sub Categories']}</b> shows the best alignment
+            (Gap = {best_sub['Gap']:.2f}).
+            </div>
+            """, unsafe_allow_html=True)
+
+            display_cols = ["Sub Categories", "Main Idea", "Q1 Mean", "Q2 Mean", "Q3 Mean", "Gap"]
+            st.dataframe(
+                cat_df[display_cols].style.format({c: "{:.2f}" for c in display_cols if "Mean" in c or c == "Gap"}),
+                use_container_width=True, hide_index=True,
+            )
+
+
+# ──────────────────────────────────────────────────────────────────
+#  TAB 4 — TYPOLOGY (original)
+# ──────────────────────────────────────────────────────────────────
+with tabs[4]:
+    st.markdown('<div class="sec-head">Resilience Typology Classification</div>', unsafe_allow_html=True)
+    st.markdown(f"""
+    <div class="explain-box">
+    <b>What is this analysis?</b> Each enabling condition is classified into one of four types based on its
+    combination of Q1 (observation), Q2 (criticality), and Q3 (resolution). This helps prioritize action.<br><br>
+    <b>The four types:</b><br>
+    🟢 <b>Enabler</b> — Q1 high, Q2 high, Q3 high. These conditions are widely observed, highly critical, and gaps are
+    well addressed. <i>These are strengths to protect.</i><br>
+    🔴 <b>Bottleneck</b> — Q1 low, Q2 high, Q3 low. Critical but neither well observed nor addressed.
+    <i>These are urgent barriers requiring immediate intervention.</i><br>
+    🟡 <b>Emerging</b> — Q1 low, Q2 moderate-high, Q3 moderate. Awareness is growing and some effort is underway.
+    <i>These need continued investment.</i><br>
+    ⚪ <b>Latent</b> — Q1 low, Q2 low. Not yet critical or visible. <i>Monitor as contexts evolve.</i><br><br>
+    <b>Current thresholds:</b> High ≥ {t_high} · Low < {t_low} (adjustable in sidebar)
+    </div>
+    """, unsafe_allow_html=True)
+
+    col_t1, col_t2 = st.columns([1, 1])
+    with col_t1:
+        type_counts = fdf["Typology"].value_counts().reset_index()
+        type_counts.columns = ["Typology", "Count"]
+        fig_pie = px.pie(
+            type_counts, values="Count", names="Typology", color="Typology",
+            color_discrete_map=TYPE_COLORS, hole=0.45,
+        )
+        fig_pie.update_traces(textinfo="label+percent+value", textfont_size=12)
+        st.plotly_chart(plotly_defaults(fig_pie, 400), use_container_width=True)
+
+    with col_t2:
+        st.markdown("""
+        <div class="explain-box">
+        <b>Scatter Plot:</b> Each dot is an enabling condition. The x-axis is Q1 (observation), y-axis is Q2
+        (criticality), and dot size is Q3 (resolution). Colors match the typology. Dotted lines show the
+        thresholds.<br><br>
+        <b>How to read it:</b> Dots in the upper-left (high Q2, low Q1) with small size (low Q3) are
+        bottlenecks. Dots in the upper-right with large size are enablers. Look at clustering patterns.
+        </div>
+        """, unsafe_allow_html=True)
+        fig_typ_scatter = px.scatter(
+            fdf, x="Q1 Mean", y="Q2 Mean", size="Q3 Mean", color="Typology",
+            hover_name="Main Idea", color_discrete_map=TYPE_COLORS, size_max=20,
+        )
+        fig_typ_scatter.add_hline(y=t_high, line_dash="dot", line_color="#aaa", annotation_text="High")
+        fig_typ_scatter.add_vline(x=t_high, line_dash="dot", line_color="#aaa")
+        fig_typ_scatter.add_vline(x=t_low, line_dash="dot", line_color="#ccc", annotation_text="Low")
+        fig_typ_scatter.update_layout(xaxis_title="Q1 — Observation (0–4)", yaxis_title="Q2 — Criticality (0–5)")
+        st.plotly_chart(plotly_defaults(fig_typ_scatter, 400), use_container_width=True)
+
+    # Auto-interpretation
+    bottlenecks = fdf[fdf["Typology"] == "Bottleneck"]
+    enablers = fdf[fdf["Typology"] == "Enabler"]
+
+    if len(bottlenecks) > 0:
+        bn_list = ", ".join(bottlenecks["Main Idea"].tolist()[:5])
+        st.markdown(f"""<div class="warn-box"><b>🔴 {len(bottlenecks)} Bottleneck(s) identified:</b> {bn_list}.<br>
+        These conditions are perceived as critical for success but are neither widely observed nor adequately resolved.
+        They represent the most urgent intervention points.</div>""", unsafe_allow_html=True)
+    if len(enablers) > 0:
+        en_list = ", ".join(enablers["Main Idea"].tolist()[:5])
+        st.markdown(f"""<div class="ok-box"><b>🟢 {len(enablers)} Enabler(s) identified:</b> {en_list}.<br>
+        These are working well — observed widely, considered critical, and gaps effectively addressed.
+        Protect and build upon these strengths.</div>""", unsafe_allow_html=True)
+
+    # Classification table
+    st.markdown('<div class="sec-head">Full Classification Table</div>', unsafe_allow_html=True)
+    type_display = fdf[["Category", "Sub Categories", "Main Idea", "Q1 Mean", "Q2 Mean", "Q3 Mean", "Gap", "Typology"]].sort_values("Typology")
+
+    def color_typology(val):
+        colors = {"Enabler": "#d4edda", "Bottleneck": "#f8d7da", "Emerging": "#fff3cd", "Latent": "#e2e3e5"}
+        return f"background-color: {colors.get(val, '')}"
+
+    styled_types = type_display.style.format({c: "{:.2f}" for c in ["Q1 Mean", "Q2 Mean", "Q3 Mean", "Gap"]})
+    try:
+        styled_types = styled_types.map(color_typology, subset=["Typology"])
+    except AttributeError:
+        styled_types = styled_types.applymap(color_typology, subset=["Typology"])
+    st.dataframe(styled_types, use_container_width=True, hide_index=True, height=500)
+
+    # Typology by category
+    st.markdown('<div class="sec-head">Typology Distribution by Category</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="explain-box">
+    <b>What is this?</b> A stacked bar showing how many conditions of each type exist within each category.
+    Categories dominated by red (Bottleneck) or yellow (Emerging) need the most attention.
+    </div>
+    """, unsafe_allow_html=True)
+
+    cross = pd.crosstab(fdf["Category"], fdf["Typology"])
+    fig_stack = go.Figure()
+    for typ in cross.columns:
+        fig_stack.add_trace(go.Bar(
+            x=cross.index, y=cross[typ], name=typ, marker_color=TYPE_COLORS.get(typ, "#888"),
+        ))
+    fig_stack.update_layout(barmode="stack", yaxis_title="Count")
+    st.plotly_chart(plotly_defaults(fig_stack, 380), use_container_width=True)
+
+
+# ──────────────────────────────────────────────────────────────────
+#  TAB 5 — VARIABILITY (original)
+# ──────────────────────────────────────────────────────────────────
+with tabs[5]:
+    st.markdown('<div class="sec-head">Variability Analysis</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="explain-box">
+    <b>What is this analysis?</b> Variability measures how much partners <i>disagreed</i> in their assessments.
+    Even if the mean is 3.5, responses could range from 1 to 5, signaling contested or context-dependent conditions.<br><br>
+    <b>Key metric: Coefficient of Variation (CV)</b> = Standard Deviation / Mean. Higher CV = more disagreement
+    relative to the average. We flag variables above the 75th percentile as "high variability."<br><br>
+    <b>Why it matters:</b> High-variability conditions may require differentiated strategies across contexts
+    rather than one-size-fits-all approaches. They may also indicate areas where partners have uneven
+    experience or where the condition genuinely varies across member organizations.<br><br>
+    <b>How to read the scatter:</b> Each dot is a condition. X-axis = mean value, Y-axis = CV.
+    Points above the dotted red line show the highest disagreement. Large dots = higher standard deviation.
+    </div>
+    """, unsafe_allow_html=True)
+
+    q_select = st.radio("Select dimension", ["Q1", "Q2", "Q3"], horizontal=True,
+                        format_func=lambda x: {"Q1": "Q1 — Observation", "Q2": "Q2 — Criticality", "Q3": "Q3 — Resolution"}[x])
+    sd_col = f"{q_select} Standard Deviation"
+    cv_col = f"{q_select} Coefficient of Variation"
+    mean_col = f"{q_select} Mean"
+
+    if sd_col in fdf.columns and cv_col in fdf.columns:
+        fig_var = px.scatter(
+            fdf, x=mean_col, y=cv_col, size=sd_col, color="Category",
+            hover_name="Main Idea", color_discrete_sequence=CAT_PALETTE, size_max=22,
+            labels={mean_col: f"{q_select} Mean", cv_col: "Coefficient of Variation"},
+        )
+        cv_threshold = fdf[cv_col].quantile(0.75)
+        fig_var.add_hline(y=cv_threshold, line_dash="dot", line_color="#e8573a",
+                          annotation_text=f"75th pctl ({cv_threshold:.2f})")
+        st.plotly_chart(plotly_defaults(fig_var, 500), use_container_width=True)
+
+        # Auto-interpretation
+        high_var_df = fdf[fdf[cv_col] >= cv_threshold].sort_values(cv_col, ascending=False)
+        if len(high_var_df) > 0:
+            top_var = high_var_df.head(3)
+            st.markdown(f"""
+            <div class="warn-box">
+            <b>⚠️ Highest disagreement on {q_select}:</b><br>
+            {"<br>".join([f'• <b>{r["Main Idea"]}</b> (CV = {r[cv_col]:.3f}, Mean = {r[mean_col]:.2f}). Partners gave very different ratings, suggesting this condition varies significantly across contexts or is perceived differently by different partners.' for _, r in top_var.iterrows()])}
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown('<div class="sec-head">High-Variability Variables</div>', unsafe_allow_html=True)
+        high_var = fdf[fdf[cv_col] >= cv_threshold][["Category", "Sub Categories", "Main Idea", mean_col, sd_col, cv_col]]
+        high_var = high_var.sort_values(cv_col, ascending=False)
+        st.dataframe(
+            high_var.style.format({c: "{:.3f}" for c in [mean_col, sd_col, cv_col]}),
+            use_container_width=True, hide_index=True,
+        )
+    else:
+        st.info(f"Columns '{sd_col}' or '{cv_col}' not found in the dataset.")
+
+
+# ──────────────────────────────────────────────────────────────────
+#  TAB 6 — PRIORITY & ADAPTIVE CAPACITY (original)
+# ──────────────────────────────────────────────────────────────────
+with tabs[6]:
+    st.markdown("""
+    <div class="explain-box">
+    <b>This tab combines two complementary analyses:</b><br><br>
+    <b>Priority Score</b> = Q2 × Gap. It identifies the most <i>urgent</i> conditions by combining how critical
+    a factor is with how large its gap is. A high score means: "this matters a lot AND it's severely lacking."
+    Use this to decide <i>what to fix first</i>.<br><br>
+    <b>Adaptive Capacity Index (Efficiency)</b> = Q3 / Q2. It measures the system's response capacity —
+    what proportion of the critical need is being effectively addressed. Values below 70% flag conditions
+    where the system is failing to respond to its own perceived priorities. Use this to assess <i>how well
+    the system responds to what it knows matters</i>.
+    </div>
+    """, unsafe_allow_html=True)
+
+    col_p, col_a = st.columns(2)
+
+    with col_p:
+        st.markdown('<div class="sec-head">Priority Ranking</div>', unsafe_allow_html=True)
+        prio = fdf.nlargest(15, "Priority Score")
+        fig_prio = go.Figure(go.Bar(
+            y=prio["Main Idea"], x=prio["Priority Score"], orientation="h",
+            marker=dict(color=prio["Priority Score"], colorscale="OrRd", showscale=True,
+                        colorbar=dict(title="Score")),
+            text=prio["Priority Score"].round(2), textposition="outside",
+        ))
+        fig_prio.update_layout(yaxis=dict(autorange="reversed", tickfont=dict(size=10)), xaxis_title="Priority Score")
+        st.plotly_chart(plotly_defaults(fig_prio, 520), use_container_width=True)
+
+    with col_a:
+        st.markdown('<div class="sec-head">Adaptive Capacity Index</div>', unsafe_allow_html=True)
+        eff_sorted = fdf.sort_values("Efficiency", ascending=True)
+        bar_c = ["#e8573a" if e < 0.7 else COLORS["q3"] for e in eff_sorted["Efficiency"]]
+        fig_eff = go.Figure(go.Bar(
+            y=eff_sorted["Main Idea"], x=eff_sorted["Efficiency"], orientation="h",
+            marker_color=bar_c, text=eff_sorted["Efficiency"].apply(lambda v: f"{v:.0%}"), textposition="outside",
+        ))
+        fig_eff.add_vline(x=0.7, line_dash="dash", line_color="#e8573a", annotation_text="70% threshold")
+        fig_eff.update_layout(yaxis=dict(autorange="reversed", tickfont=dict(size=10)), xaxis_title="Efficiency (Q3/Q2)")
+        st.plotly_chart(plotly_defaults(fig_eff, 520), use_container_width=True)
+
+    # Auto-interpretation
+    top_prio = fdf.nlargest(3, "Priority Score")
+    low_eff = fdf[fdf["Efficiency"] < 0.7].sort_values("Efficiency")
+
+    st.markdown(f"""
+    <div class="warn-box">
+    <b>🎯 Top 3 Priorities for Action:</b><br>
+    {"<br>".join([f'• <b>{r["Main Idea"]}</b> — Priority Score = {r["Priority Score"]:.2f}. This factor is {interpret_q2(r["Q2 Mean"])} but was {interpret_q1(r["Q1 Mean"])}. It requires urgent attention because it combines high perceived importance with a large gap in availability.' for _, r in top_prio.iterrows()])}
+    </div>
+    """, unsafe_allow_html=True)
+
+    if len(low_eff) > 0:
+        st.markdown(f"""
+        <div class="warn-box">
+        <b>⚠️ {len(low_eff)} condition(s) with Efficiency below 70%:</b><br>
+        {"<br>".join([f'• <b>{r["Main Idea"]}</b> — Efficiency = {r["Efficiency"]:.0%}. Despite being {interpret_q2(r["Q2 Mean"])}, gaps have been {interpret_q3(r["Q3 Mean"])}. Only {r["Efficiency"]:.0%} of the perceived critical need is being resolved.' for _, r in low_eff.head(5).iterrows()])}
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Strategic Map
+    st.markdown('<div class="sec-head">Priority vs Efficiency — Strategic Quadrant Map</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="explain-box">
+    <b>What is this?</b> A strategic positioning map combining both analyses. Each dot is a condition.
+    X-axis = Priority Score (urgency), Y-axis = Efficiency (adaptive capacity).<br><br>
+    <b>How to read the quadrants:</b><br>
+    • <b>Upper-left (low priority, high efficiency)</b> — ✅ Stable. Well managed, no urgent action needed.<br>
+    • <b>Upper-right (high priority, high efficiency)</b> — 🔄 Responding. Critical and being addressed, maintain effort.<br>
+    • <b>Lower-left (low priority, low efficiency)</b> — 👁️ Watch. Not urgent but response capacity is weak.<br>
+    • <b>Lower-right (high priority, low efficiency)</b> — ⚠️ <b>Critical zone.</b> Highly urgent AND poorly addressed. Top priority.
+    </div>
+    """, unsafe_allow_html=True)
+
+    fig_strat = px.scatter(
+        fdf, x="Priority Score", y="Efficiency", color="Typology", hover_name="Main Idea",
+        size="Gap", size_max=20, color_discrete_map=TYPE_COLORS,
+    )
+    fig_strat.add_hline(y=0.7, line_dash="dot", line_color="#e8573a", annotation_text="Low efficiency")
+    med_prio = fdf["Priority Score"].median()
+    fig_strat.add_vline(x=med_prio, line_dash="dot", line_color="#aaa", annotation_text="Median priority")
+    fig_strat.add_annotation(x=fdf["Priority Score"].max() * 0.85, y=0.55, text="⚠️ Critical zone",
+                             showarrow=False, font=dict(size=11, color="#e8573a"))
+    prio_min = fdf["Priority Score"].min()
+    fig_strat.add_annotation(x=prio_min + 0.3 if prio_min >= 0 else 0.3,
+                             y=fdf["Efficiency"].max() * 0.95, text="✅ Stable",
+                             showarrow=False, font=dict(size=11, color="#2ebd6e"))
+    st.plotly_chart(plotly_defaults(fig_strat, 500), use_container_width=True)
+
+
+# ──────────────────────────────────────────────────────────────────
+#  TAB 7 — DATA EXPLORER (original)
+# ──────────────────────────────────────────────────────────────────
+with tabs[7]:
+    st.markdown('<div class="sec-head">Full Dataset Explorer</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="explain-box">
+    Search, sort, and explore the full dataset. Use the keyword search to find specific conditions by name
+    or statement text. Download the filtered or complete analysis dataset as CSV for further work.
+    </div>
+    """, unsafe_allow_html=True)
+
+    search = st.text_input("🔎 Search by keyword (Main Idea / Statement)", "")
+    if search:
+        mask = (fdf["Main Idea"].str.contains(search, case=False, na=False)
+                | fdf["Statement"].str.contains(search, case=False, na=False))
+        explore_df = fdf[mask]
+    else:
+        explore_df = fdf
+
+    st.dataframe(
+        explore_df.style.format({c: "{:.2f}" for c in explore_df.select_dtypes("number").columns}),
+        use_container_width=True, hide_index=True, height=600,
+    )
+
+    st.markdown("---")
+    col_dl1, col_dl2 = st.columns(2)
+    with col_dl1:
+        csv_buf = explore_df.to_csv(index=False).encode("utf-8")
+        st.download_button("⬇️ Download filtered data (CSV)", csv_buf, "resilience_filtered.csv", "text/csv")
+    with col_dl2:
+        full_csv = fdf.to_csv(index=False).encode("utf-8")
+        st.download_button("⬇️ Download full analysis (CSV)", full_csv, "resilience_full_analysis.csv", "text/csv")
+
+    # Q comparison scatter
+    st.markdown('<div class="sec-head">Q1 vs Q2 vs Q3 — Pairwise Comparison</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="explain-box">
+    <b>What is this?</b> A scatter plot comparing two dimensions at a time. The diagonal dotted line represents
+    perfect equality. Points above the line indicate the Y-axis dimension exceeds the X-axis dimension; points
+    below indicate the opposite.<br><br>
+    <b>Example:</b> In "Q1 vs Q2", points above the diagonal mean criticality exceeds observation (positive gap).
+    </div>
+    """, unsafe_allow_html=True)
+
+    scatter_mode = st.radio("View", ["Q1 vs Q2", "Q1 vs Q3", "Q2 vs Q3"], horizontal=True, key="scatter_comp")
+    x_map = {"Q1 vs Q2": "Q1 Mean", "Q1 vs Q3": "Q1 Mean", "Q2 vs Q3": "Q2 Mean"}
+    y_map = {"Q1 vs Q2": "Q2 Mean", "Q1 vs Q3": "Q3 Mean", "Q2 vs Q3": "Q3 Mean"}
+    fig_comp = px.scatter(
+        fdf, x=x_map[scatter_mode], y=y_map[scatter_mode],
+        color="Category", hover_name="Main Idea", color_discrete_sequence=CAT_PALETTE, size_max=14,
+    )
+    min_v = min(fdf[x_map[scatter_mode]].min(), fdf[y_map[scatter_mode]].min()) - 0.2
+    max_v = max(fdf[x_map[scatter_mode]].max(), fdf[y_map[scatter_mode]].max()) + 0.2
+    fig_comp.add_trace(go.Scatter(
+        x=[min_v, max_v], y=[min_v, max_v], mode="lines",
+        line=dict(dash="dot", color="#ccc"), showlegend=False,
+    ))
+    fig_comp.update_layout(
+        xaxis_title=x_map[scatter_mode].replace("Mean", "").strip(),
+        yaxis_title=y_map[scatter_mode].replace("Mean", "").strip(),
+    )
+    st.plotly_chart(plotly_defaults(fig_comp, 460), use_container_width=True)
+
+
+# ──────────────────────────────────────────────────────────────────
+#  TAB 8 — Q‑METHODOLOGY (NUEVA)
 # ──────────────────────────────────────────────────────────────────
 with tabs[8]:
     st.markdown('<div class="sec-head">🧩 Q‑Methodology Analysis</div>', unsafe_allow_html=True)
     st.markdown("""
     <div class="explain-box">
-    Esta pestaña utiliza las respuestas individuales de los partners registradas en las hojas 
-    <b>QUESTION 1</b>, <b>QUESTION 2</b> y <b>QUESTION 3</b> del mismo archivo Excel. 
-    Selecciona la pregunta que deseas analizar y la aplicación construirá automáticamente la matriz de Q‑sorts 
-    con las afirmaciones de la hoja <b>DATASET</b>. Los participantes que tengan valores "NR" (no respondieron) 
-    serán excluidos del análisis para garantizar la integridad de los datos.
+    <b>What is Q‑methodology?</b> Q‑methodology is a research technique used to systematically study subjective
+    viewpoints. It combines qualitative and quantitative approaches to identify shared patterns of thinking
+    among participants. In this context, we analyze how the RtR partners rank the enabling condition statements
+    (the same 36 statements from the survey) according to a forced quasi‑normal distribution (from -5 to +5).
+    By correlating and factor‑analyzing individual Q‑sorts, we uncover distinct factors (viewpoints) that
+    represent different ways partners perceive the importance and performance of enabling conditions.
+    <br><br>
+    <b>How to use this tab:</b> Select which question (Q1, Q2, or Q3) you want to analyze – each represents a
+    different rating dimension (observation, criticality, resolution). The app will automatically extract
+    the individual partner responses from the corresponding <b>QUESTION</b> sheet in your uploaded Excel file.
+    Partners with incomplete data (any "NR" values) are excluded to ensure data integrity. You can then choose
+    the number of factors to extract (or let the Kaiser criterion decide) and run the analysis. The output
+    includes factor loadings, z‑scores, factor arrays (the reconstructed Q‑sort for each factor), and lists
+    of distinguishing and consensus statements.
     </div>
     """, unsafe_allow_html=True)
 
     # Selector de pregunta
-    q_choice = st.radio("Seleccionar pregunta para el análisis Q", ["Q1", "Q2", "Q3"], horizontal=True,
-                        format_func=lambda x: f"{x} – " + {"Q1": "Observación", "Q2": "Criticidad", "Q3": "Resolución"}[x])
+    q_choice = st.radio("Select question for Q‑analysis", ["Q1", "Q2", "Q3"], horizontal=True,
+                        format_func=lambda x: f"{x} – " + {"Q1": "Observation", "Q2": "Criticality", "Q3": "Resolution"}[x])
 
-    if st.button("Cargar datos y ejecutar análisis Q", type="primary"):
-        with st.spinner("Extrayendo datos y calculando..."):
+    if st.button("Load data and run Q‑analysis", type="primary"):
+        with st.spinner("Extracting data and computing..."):
             try:
                 statements, q_data = load_q_from_excel(uploaded, q_choice)
-                st.success(f"Datos cargados: {q_data.shape[1]} participantes válidos, {q_data.shape[0]} afirmaciones.")
+                if q_data.shape[1] == 0:
+                    st.error("No complete participants found after removing missing values.")
+                    st.stop()
+                st.success(f"Data loaded: {q_data.shape[1]} valid participants, {q_data.shape[0]} statements.")
 
-                # Mostrar vista previa
-                with st.expander("Ver matriz de Q‑sorts (primeros participantes)"):
+                with st.expander("Preview Q‑sort matrix (first few participants)"):
                     st.dataframe(q_data.iloc[:, :5].head(10))
 
                 # Parámetros del análisis
                 col1, col2 = st.columns(2)
                 with col1:
-                    auto_factors = st.checkbox("Seleccionar número de factores automáticamente (eigenvalue > 1)", value=True)
+                    auto_factors = st.checkbox("Select number of factors automatically (eigenvalue > 1)", value=True)
                     if not auto_factors:
-                        n_factors = st.number_input("Número de factores a extraer", min_value=1, max_value=min(10, q_data.shape[1]), value=2)
+                        n_factors = st.number_input("Number of factors to extract", min_value=1, max_value=min(10, q_data.shape[1]), value=2)
                     else:
                         n_factors = None
                 with col2:
-                    rotation = st.selectbox("Rotación", ["varimax", "ninguna"], index=0)
+                    rotation = st.selectbox("Rotation", ["varimax", "none"], index=0)
 
-                if st.button("Ejecutar análisis factorial", type="secondary"):
-                    with st.spinner("Calculando..."):
-                        results = perform_q_analysis(q_data, n_factors=n_factors, rotation=rotation if rotation != "ninguna" else None)
+                if st.button("Run factor analysis", type="secondary"):
+                    with st.spinner("Performing factor analysis..."):
+                        results = perform_q_analysis(q_data, n_factors=n_factors, rotation=rotation if rotation != "none" else None)
 
-                    # Mostrar resultados (igual que antes)
+                    # Mostrar resultados
                     st.markdown("---")
-                    st.markdown('<div class="sec-head">Resultados del Análisis Factorial</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="sec-head">Factor Analysis Results</div>', unsafe_allow_html=True)
 
                     # Scree plot
                     fig_scree = go.Figure()
                     fig_scree.add_trace(go.Bar(x=list(range(1, len(results['eigenvals'])+1)), y=results['eigenvals'],
-                                                marker_color=COLORS['q1'], name="Autovalores"))
+                                                marker_color=COLORS['q1'], name="Eigenvalues"))
                     fig_scree.add_hline(y=1, line_dash="dash", line_color="red", annotation_text="Kaiser >1")
-                    fig_scree.update_layout(xaxis_title="Factor", yaxis_title="Autovalor",
-                                            title="Diagrama de sedimentación (scree plot)")
+                    fig_scree.update_layout(xaxis_title="Factor", yaxis_title="Eigenvalue",
+                                            title="Scree plot")
                     st.plotly_chart(plotly_defaults(fig_scree, 400), use_container_width=True)
 
-                    st.markdown(f"**Número de factores retenidos:** {results['n_factors']}")
-                    st.markdown(f"**Varianza explicada por factor:**")
+                    st.markdown(f"**Number of factors retained:** {results['n_factors']}")
+                    st.markdown(f"**Variance explained by each factor:**")
                     for i, var in enumerate(results['explained_var']):
                         st.markdown(f"- Factor {i+1}: {var:.2f}%")
 
-                    # Cargas factoriales
-                    st.markdown('<div class="sec-head">Cargas factoriales (participantes × factores)</div>', unsafe_allow_html=True)
+                    # Factor loadings
+                    st.markdown('<div class="sec-head">Factor Loadings (participants × factors)</div>', unsafe_allow_html=True)
                     loadings_disp = results['loadings'].copy()
                     def highlight_high(val):
                         color = 'background-color: #d4edda' if abs(val) > 0.5 else ''
@@ -640,16 +1244,16 @@ with tabs[8]:
                     st.dataframe(loadings_disp.style.applymap(highlight_high).format("{:.3f}"),
                                  use_container_width=True, height=400)
 
-                    # Puntuaciones factoriales
-                    st.markdown('<div class="sec-head">Puntuaciones factoriales (z-scores) por afirmación</div>', unsafe_allow_html=True)
+                    # Z‑scores
+                    st.markdown('<div class="sec-head">Factor Z‑scores (per statement)</div>', unsafe_allow_html=True)
                     st.dataframe(results['z_scores'].style.format("{:.3f}"), use_container_width=True)
 
-                    # Arrays de factores
-                    st.markdown('<div class="sec-head">Arrays de factores (valores de cuadrícula -5 a +5)</div>', unsafe_allow_html=True)
+                    # Factor arrays
+                    st.markdown('<div class="sec-head">Factor Arrays (grid values -5 to +5)</div>', unsafe_allow_html=True)
                     st.dataframe(results['factor_arrays'].style.format("{:.0f}"), use_container_width=True)
 
-                    # Afirmaciones distintivas y de consenso
-                    st.markdown('<div class="sec-head">Afirmaciones distintivas y de consenso</div>', unsafe_allow_html=True)
+                    # Distinguishing and consensus statements
+                    st.markdown('<div class="sec-head">Distinguishing and Consensus Statements</div>', unsafe_allow_html=True)
 
                     statements_list = q_data.index.tolist()
                     distinctive_by_factor = {f"Factor {i+1}": [] for i in range(results['n_factors'])}
@@ -658,41 +1262,41 @@ with tabs[8]:
 
                     for factor, stmts in distinctive_by_factor.items():
                         if stmts:
-                            st.markdown(f"**{factor}** (distintivas):")
+                            st.markdown(f"**{factor}** (distinguishing statements):")
                             for s in stmts:
                                 st.markdown(f"- {s}")
 
                     if results['consensus']:
-                        st.markdown("**Afirmaciones de consenso** (todos los factores coinciden):")
+                        st.markdown("**Consensus statements** (all factors agree):")
                         for idx in results['consensus']:
                             st.markdown(f"- {statements_list[idx]}")
 
-                    # Gráfico comparativo
-                    st.markdown('<div class="sec-head">Perfil de puntuaciones factoriales</div>', unsafe_allow_html=True)
+                    # Profile plot
+                    st.markdown('<div class="sec-head">Factor Z‑score Profiles</div>', unsafe_allow_html=True)
                     fig_z = go.Figure()
                     for i in range(results['n_factors']):
                         fig_z.add_trace(go.Scatter(x=list(range(len(statements_list))),
                                                     y=results['z_scores'].iloc[:, i],
                                                     mode='lines+markers',
                                                     name=f"Factor {i+1}"))
-                    fig_z.update_layout(xaxis_title="Afirmación (índice)", yaxis_title="z-score")
+                    fig_z.update_layout(xaxis_title="Statement index", yaxis_title="z‑score")
                     st.plotly_chart(plotly_defaults(fig_z, 500), use_container_width=True)
 
-                    # Descarga
+                    # Download results
                     output = BytesIO()
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
                         results['loadings'].to_excel(writer, sheet_name='Loadings')
                         results['z_scores'].to_excel(writer, sheet_name='Z_scores')
                         results['factor_arrays'].to_excel(writer, sheet_name='Factor_arrays')
-                    st.download_button("⬇️ Descargar resultados completos (Excel)", output.getvalue(),
+                    st.download_button("⬇️ Download complete results (Excel)", output.getvalue(),
                                        file_name="q_analysis_results.xlsx")
 
             except Exception as e:
-                st.error(f"Error al procesar los datos: {e}")
+                st.error(f"Error processing data: {e}")
 
 
 # ──────────────────────────────────────────────────────────────────
-#  TAB 9 — GLOSSARY & SCALES (original)
+#  TAB 9 — GLOSSARY & SCALES (original, ahora en índice 9)
 # ──────────────────────────────────────────────────────────────────
 with tabs[9]:
     st.markdown("# 📖 Glossary, Scales & Survey Reference")
