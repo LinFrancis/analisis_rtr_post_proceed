@@ -184,8 +184,6 @@ def equamax(loadings, normalize=True, eps=1e-6):
         old_d = d
         L = np.dot(scaled_loadings, rotmat)
         # Equamax: combina criterios de Varimax y Quartimax
-        # Usamos la fórmula estándar: B = L.T * (L**3 - (n_cols/(2*n_rows)) * L * diag(sumsq))
-        # Simplificamos con la implementación típica
         B = np.dot(L.T, (L**3 - np.dot(L, np.diag(np.sum(L**2, axis=0)) / (2*n_rows))))
         U, s, Vh = np.linalg.svd(B)
         rotmat = np.dot(U, Vh)
@@ -205,14 +203,8 @@ def promax(loadings, power=3, normalize=True):
     # Crear matriz objetivo: elevar las cargas al cubo (manteniendo signo)
     target = np.sign(loadings_rot) * (np.abs(loadings_rot) ** power)
     # Resolver para la matriz de transformación oblicua
-    # Usamos mínimos cuadrados para encontrar Phi tal que loadings_rot @ Phi.T ≈ target
-    # Luego normalizamos
     from scipy.linalg import lstsq
     Phi, _, _, _ = lstsq(loadings_rot, target)
-    # Normalizar para que las varianzas de los factores sean 1 (opcional)
-    # En promax típicamente se normalizan las filas de Phi
-    # Aquí simplemente devolvemos las cargas rotadas oblicuas: loadings @ Phi
-    # La matriz de correlación entre factores sería inv(Phi.T @ Phi)
     loadings_promax = np.dot(loadings, Phi)
     return loadings_promax, Phi
 
@@ -225,13 +217,13 @@ def load_q_from_excel(file, question):
         file: archivo Excel subido (BytesIO)
         question: 'Q1', 'Q2' o 'Q3'
     Retorna:
-        statements: lista de afirmaciones (ordenadas según DATASET)
+        statements_df: DataFrame con columnas ['Statement', 'Category'] para cada afirmación
         q_data: DataFrame con índices = afirmaciones, columnas = participantes, valores = puntuaciones
     """
-    # Leer DATASET para obtener las afirmaciones en orden
+    # Leer DATASET para obtener las afirmaciones en orden y sus categorías
     df_dataset = pd.read_excel(file, sheet_name="DATASET")
     df_dataset.columns = df_dataset.columns.str.strip()
-    statements = df_dataset["Statement"].dropna().tolist()
+    statements_df = df_dataset[["Statement", "Category"]].dropna().copy()
     
     # Mapeo de pregunta a nombre de hoja
     sheet_map = {"Q1": "QUESTION 1", "Q2": "QUESTION 2", "Q3": "QUESTION 3"}
@@ -244,14 +236,14 @@ def load_q_from_excel(file, question):
     df_partners = df_resp[partner_cols].copy()
     
     # Asegurar que el número de filas coincida con el número de afirmaciones
-    df_partners = df_partners.iloc[:len(statements)]
+    df_partners = df_partners.iloc[:len(statements_df)]
     
     # Reemplazar "NR" por NaN y convertir a numérico
     df_partners = df_partners.replace("NR", np.nan)
     df_partners = df_partners.apply(pd.to_numeric, errors='coerce')
     
     # Establecer el índice como las afirmaciones
-    df_partners.index = statements[:len(df_partners)]
+    df_partners.index = statements_df["Statement"].tolist()
     
     # Eliminar participantes (columnas) que tengan algún NaN
     participantes_validos = df_partners.columns[df_partners.isna().sum() == 0]
@@ -261,7 +253,7 @@ def load_q_from_excel(file, question):
     if n_eliminados > 0:
         st.info(f"Se eliminaron {n_eliminados} participantes por tener valores faltantes (NR).")
     
-    return statements, df_clean
+    return statements_df, df_clean
 
 
 def perform_q_analysis(q_data, n_factors=None, rotation='varimax'):
@@ -617,24 +609,54 @@ with tabs[0]:
     <b>📈 Variability</b> — Shows where partners disagreed most, signaling contested or context-dependent factors.<br>
     <b>🎯 Priority & Capacity</b> — Ranks conditions by urgency and measures adaptive efficiency.<br>
     <b>🗂 Data Explorer</b> — Full searchable dataset with download options.<br>
-    <b>🧩 Q‑Methodology</b> — Performs factor analysis on individual partner responses to identify shared viewpoints (factors). You can select Q1, Q2, or Q3, choose among several rotation methods (varimax, quartimax, equamax, promax, or none), and obtain factor loadings, z‑scores, factor arrays, and distinguishing/consensus statements.<br>
+    <b>🧩 Q‑Methodology</b> — Performs factor analysis on individual partner responses to identify shared viewpoints (factors). You can select Q1, Q2, or Q3, filter by category, choose among several rotation methods (varimax, quartimax, equamax, promax, or none), and obtain factor loadings, z‑scores, factor arrays, and distinguishing/consensus statements.<br>
     <b>📖 Glossary & Scales</b> — Complete reference for all metrics, scales, and survey questions.
     </div>
     """, unsafe_allow_html=True)
 
 
 # ──────────────────────────────────────────────────────────────────
-#  TABS 1 a 7 (originales, sin cambios) - se omiten por brevedad,
-#  pero en tu archivo deben estar completos con el código original.
-#  Asegúrate de copiarlos exactamente como estaban.
+#  TABS 1 a 7 (originales) - deben estar completos con tu código original.
+#  Por brevedad, aquí se indica el lugar, pero en el archivo final deben incluirse.
 # ──────────────────────────────────────────────────────────────────
+with tabs[1]:
+    # (Código original de Overview)
+    st.markdown("### Overview tab content (original)")
+    # ... pega aquí tu código existente ...
 
-# (Aquí va todo el código de las pestañas 1 a 7 que ya tenías funcionando.
-#  No lo repito para mantener la respuesta concisa, pero en el archivo final deben estar.)
+with tabs[2]:
+    # (Código original de Gap Analysis)
+    st.markdown("### Gap Analysis tab content (original)")
+    # ... pega aquí tu código existente ...
+
+with tabs[3]:
+    # (Código original de Categories)
+    st.markdown("### Categories tab content (original)")
+    # ... pega aquí tu código existente ...
+
+with tabs[4]:
+    # (Código original de Typology)
+    st.markdown("### Typology tab content (original)")
+    # ... pega aquí tu código existente ...
+
+with tabs[5]:
+    # (Código original de Variability)
+    st.markdown("### Variability tab content (original)")
+    # ... pega aquí tu código existente ...
+
+with tabs[6]:
+    # (Código original de Priority & Capacity)
+    st.markdown("### Priority & Capacity tab content (original)")
+    # ... pega aquí tu código existente ...
+
+with tabs[7]:
+    # (Código original de Data Explorer)
+    st.markdown("### Data Explorer tab content (original)")
+    # ... pega aquí tu código existente ...
 
 
 # ──────────────────────────────────────────────────────────────────
-#  TAB 8 — Q‑METHODOLOGY (MEJORADA CON SESSION STATE Y MÁS ROTACIONES)
+#  TAB 8 — Q‑METHODOLOGY (CON FILTRO POR CATEGORÍA)
 # ──────────────────────────────────────────────────────────────────
 with tabs[8]:
     st.markdown('<div class="sec-head">🧩 Q‑Methodology Analysis</div>', unsafe_allow_html=True)
@@ -653,51 +675,69 @@ with tabs[8]:
     <br><br>
     <b>How to use this tab:</b> Select which question (Q1, Q2, or Q3) you want to analyze – each represents a
     different rating dimension (observation, criticality, resolution). The app will automatically extract
-    the individual partner responses from the corresponding <b>QUESTION</b> sheet in your uploaded Excel file.
-    Partners with incomplete data (any "NR" values) are excluded to ensure data integrity. You can then choose
-    the number of factors to extract (or let the Kaiser criterion decide), select a rotation method, and run
-    the analysis. The output includes factor loadings, z‑scores, factor arrays (the reconstructed Q‑sort for each factor),
+    the individual partner responses from the corresponding <b>QUESTION</b> sheet. Then you can filter by one or more
+    categories to focus on specific thematic areas. Partners with incomplete data (any "NR" values) are excluded.
+    You can then choose the number of factors to extract (or let the Kaiser criterion decide), select a rotation method,
+    and run the analysis. The output includes factor loadings, z‑scores, factor arrays (the reconstructed Q‑sort for each factor),
     and lists of distinguishing and consensus statements.
     </div>
     """, unsafe_allow_html=True)
 
     # Inicializar session_state
-    if 'q_data' not in st.session_state:
-        st.session_state.q_data = None
-        st.session_state.q_statements = None
+    if 'q_data_full' not in st.session_state:
+        st.session_state.q_data_full = None
+        st.session_state.q_statements_df = None
         st.session_state.q_choice = None
         st.session_state.q_results = None
+        st.session_state.q_categories = []
 
     # Selector de pregunta
     q_choice = st.radio("Select question for Q‑analysis", ["Q1", "Q2", "Q3"], horizontal=True,
                         format_func=lambda x: f"{x} – " + {"Q1": "Observation (0-4)", "Q2": "Criticality (0-5)", "Q3": "Resolution (0-5)"}[x])
 
-    # Botón para cargar datos
-    if st.button("Load data", type="primary") or (st.session_state.q_data is not None and st.session_state.q_choice != q_choice):
+    # Botón para cargar datos (solo si cambia la pregunta o no hay datos)
+    if st.button("Load data", type="primary") or (st.session_state.q_data_full is not None and st.session_state.q_choice != q_choice):
         with st.spinner("Extracting data..."):
             try:
-                statements, q_data = load_q_from_excel(uploaded, q_choice)
-                if q_data.shape[1] == 0:
+                statements_df, q_data_full = load_q_from_excel(uploaded, q_choice)
+                if q_data_full.shape[1] == 0:
                     st.error("No complete participants found after removing missing values.")
-                    st.session_state.q_data = None
+                    st.session_state.q_data_full = None
                 else:
-                    st.session_state.q_data = q_data
-                    st.session_state.q_statements = statements
+                    st.session_state.q_data_full = q_data_full
+                    st.session_state.q_statements_df = statements_df
                     st.session_state.q_choice = q_choice
                     st.session_state.q_results = None
-                    st.success(f"Data loaded: {q_data.shape[1]} valid participants, {q_data.shape[0]} statements.")
-                    if q_data.shape[1] < 5:
+                    st.success(f"Data loaded: {q_data_full.shape[1]} valid participants, {q_data_full.shape[0]} statements total.")
+                    if q_data_full.shape[1] < 5:
                         st.warning("Very small sample size. Results should be interpreted with caution.")
             except Exception as e:
                 st.error(f"Error loading data: {e}")
-                st.session_state.q_data = None
+                st.session_state.q_data_full = None
 
     # Si hay datos cargados, mostrar opciones
-    if st.session_state.q_data is not None:
-        q_data = st.session_state.q_data
-        statements = st.session_state.q_statements
+    if st.session_state.q_data_full is not None:
+        q_data_full = st.session_state.q_data_full
+        statements_df = st.session_state.q_statements_df
 
-        with st.expander("Preview Q‑sort matrix (first few participants)"):
+        # Mostrar información de categorías disponibles
+        all_cats_q = sorted(statements_df["Category"].unique())
+        st.markdown("### Filter by category")
+        selected_cats = st.multiselect("Select one or more categories", all_cats_q, default=all_cats_q, key="q_cats")
+        if not selected_cats:
+            st.warning("Please select at least one category.")
+            st.stop()
+
+        # Filtrar afirmaciones por categoría
+        filtered_statements = statements_df[statements_df["Category"].isin(selected_cats)]["Statement"].tolist()
+        q_data = q_data_full.loc[filtered_statements]
+        if q_data.shape[0] < 2:
+            st.error("After filtering, there are fewer than 2 statements. Cannot perform factor analysis.")
+            st.stop()
+
+        st.info(f"Analysis will use **{q_data.shape[0]} statements** from categories: {', '.join(selected_cats)}.")
+
+        with st.expander("Preview filtered Q‑sort matrix (first few participants)"):
             st.dataframe(q_data.iloc[:, :5].head(10))
 
         col1, col2 = st.columns(2)
@@ -760,7 +800,7 @@ with tabs[8]:
             # Distinguishing and consensus statements
             st.markdown('<div class="sec-head">Distinguishing and Consensus Statements</div>', unsafe_allow_html=True)
 
-            statements_list = statements
+            statements_list = filtered_statements
             distinctive_by_factor = {f"Factor {i+1}": [] for i in range(results['n_factors'])}
             for (f, idx) in results['distinctive']:
                 distinctive_by_factor[f"Factor {f+1}"].append(statements_list[idx])
@@ -798,7 +838,7 @@ with tabs[8]:
 
 
 # ──────────────────────────────────────────────────────────────────
-#  TAB 9 — GLOSSARY & SCALES (original, ahora en índice 9)
+#  TAB 9 — GLOSSARY & SCALES (original)
 # ──────────────────────────────────────────────────────────────────
 with tabs[9]:
     st.markdown("# 📖 Glossary, Scales & Survey Reference")
