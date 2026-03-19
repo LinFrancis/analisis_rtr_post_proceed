@@ -12,6 +12,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from io import BytesIO
+import scipy.stats as stats  # <-- NUEVA importación para Q‑methodology
 
 # ── Page config ──────────────────────────────────────────────────
 st.set_page_config(
@@ -110,7 +111,176 @@ def interpret_q3(val):
 
 
 # ══════════════════════════════════════════════════════════════════
-#  DATA LOADING & PROCESSING
+#  FUNCIONES PARA EL ANÁLISIS DE Q‑METHODOLOGY (NUEVAS)
+# ══════════════════════════════════════════════════════════════════
+
+def varimax(loadings, normalize=True, eps=1e-6):
+    """
+    Rotación Varimax (ortogonal). Implementación estándar.
+    loadings: matriz de cargas (variables × factores) sin rotar.
+    Retorna matriz rotada y matriz de transformación.
+    """
+    n_rows, n_cols = loadings.shape
+    if n_cols < 2:
+        return loadings, np.eye(n_cols)
+
+    # Normalizar por la comunalidad si se pide
+    if normalize:
+        h2 = np.sum(loadings**2, axis=1, keepdims=True)
+        h2 = np.maximum(h2, eps)
+        scaled_loadings = loadings / np.sqrt(h2)
+    else:
+        scaled_loadings = loadings
+
+    rotmat = np.eye(n_cols)
+    d = 0
+    for _ in range(50):
+        old_d = d
+        L = np.dot(scaled_loadings, rotmat)
+        B = np.dot(L.T, (L**3 - np.dot(L, np.diag(np.sum(L**2, axis=0)) / n_rows)))
+        U, s, Vh = np.linalg.svd(B)
+        rotmat = np.dot(U, Vh)
+        d = np.sum(s)
+        if d / old_d < 1 + eps and old_d != 0:
+            break
+
+    rotated = np.dot(loadings, rotmat)
+    return rotated, rotmat
+
+
+def load_qsort_data(file):
+    """
+    Lee un archivo Excel (.xlsx) o CSV con los datos de Q‑sort.
+    Formato esperado:
+        - Primera columna: identificador o texto de la afirmación.
+        - Columnas siguientes: cada participante con sus puntuaciones (de -5 a +5).
+    Retorna un DataFrame con las afirmaciones como índice y los participantes como columnas.
+    """
+    if file.name.endswith('.csv'):
+        df = pd.read_csv(file, index_col=0)
+    else:
+        xl = pd.ExcelFile(file)
+        if 'QSORT' in xl.sheet_names:
+            df = pd.read_excel(file, sheet_name='QSORT', index_col=0)
+        else:
+            df = pd.read_excel(file, sheet_name=0, index_col=0)
+    df = df.apply(pd.to_numeric, errors='coerce')
+    df = df.dropna(how='all').dropna(axis=1, how='all')
+    return df
+
+
+def perform_q_analysis(q_data, n_factors=None, rotation='varimax'):
+    """
+    Realiza análisis factorial de Q.
+    Parámetros:
+        q_data: DataFrame (afirmaciones × participantes)
+        n_factors: número de factores a extraer (None = automático por eigenvalue>1)
+        rotation: método de rotación ('varimax' o None)
+    Retorna diccionario con resultados.
+    """
+    sorts = q_data.T  # shape: (n_participantes, n_afirmaciones)
+    n_participants, n_statements = sorts.shape
+
+    # 1. Matriz de correlación
+    corr = np.corrcoef(sorts.values)
+    if np.isnan(corr).any():
+        st.warning("La matriz de correlación contiene NaN. Se imputarán con 0.")
+        corr = np.nan_to_num(corr)
+
+    # 2. Autovalores y autovectores
+    eigenvals, eigenvecs = np.linalg.eigh(corr)
+    idx = np.argsort(eigenvals)[::-1]
+    eigenvals = eigenvals[idx]
+    eigenvecs = eigenvecs[:, idx]
+
+    # 3. Seleccionar número de factores
+    if n_factors is None:
+        n_factors = np.sum(eigenvals > 1.0)
+        if n_factors < 1:
+            n_factors = 1
+    else:
+        n_factors = min(int(n_factors), n_participants)
+
+    # 4. Cargas no rotadas
+    loadings_unrot = eigenvecs[:, :n_factors] * np.sqrt(eigenvals[:n_factors])
+
+    # 5. Rotación
+    if rotation == 'varimax' and n_factors > 1:
+        loadings, rotmat = varimax(loadings_unrot)
+    else:
+        loadings = loadings_unrot
+        rotmat = np.eye(n_factors)
+
+    # 6. Puntuaciones factoriales (z‑scores)
+    sorts_norm = (sorts - sorts.mean(axis=1).values[:, None]) / sorts.std(axis=1).values[:, None]
+    sorts_norm = sorts_norm.fillna(0)
+
+    weights = loadings
+    z_scores = np.zeros((n_factors, n_statements))
+    for f in range(n_factors):
+        w = weights[:, f]
+        denom = np.sum(w**2)
+        if denom > 0:
+            z_scores[f] = np.sum(w[:, None] * sorts_norm.values, axis=0) / denom
+        else:
+            z_scores[f] = 0
+
+    # 7. Arrays de factores (valores de cuadrícula -5..+5)
+    from scipy.stats import norm
+    probs = np.linspace(0, 1, 12)[1:-1]
+    cutoffs = norm.ppf(probs)
+    factor_arrays = np.zeros_like(z_scores)
+    for f in range(n_factors):
+        z_std = (z_scores[f] - np.mean(z_scores[f])) / np.std(z_scores[f])
+        bins = np.concatenate([[-np.inf], cutoffs, [np.inf]])
+        labels = np.arange(-5, 6)
+        factor_arrays[f] = labels[np.digitize(z_std, bins) - 1]
+
+    # 8. Afirmaciones distintivas y de consenso
+    distinctive = []
+    consensus = []
+    threshold = 1.0
+    for i in range(n_statements):
+        z_factors = z_scores[:, i]
+        max_diff = np.max(z_factors) - np.min(z_factors)
+        if max_diff < threshold:
+            consensus.append(i)
+        else:
+            for f in range(n_factors):
+                others = np.delete(z_factors, f)
+                if abs(z_factors[f] - np.mean(others)) > threshold:
+                    distinctive.append((f, i))
+
+    explained_var = eigenvals[:n_factors] / n_participants * 100
+
+    loadings_df = pd.DataFrame(loadings,
+                               index=sorts.index,
+                               columns=[f"Factor {i+1}" for i in range(n_factors)])
+    z_df = pd.DataFrame(z_scores.T,
+                        index=q_data.index,
+                        columns=[f"Factor {i+1}" for i in range(n_factors)])
+    array_df = pd.DataFrame(factor_arrays.T,
+                            index=q_data.index,
+                            columns=[f"Factor {i+1}" for i in range(n_factors)])
+
+    results = {
+        'n_factors': n_factors,
+        'eigenvals': eigenvals,
+        'explained_var': explained_var,
+        'loadings': loadings_df,
+        'z_scores': z_df,
+        'factor_arrays': array_df,
+        'distinctive': distinctive,
+        'consensus': consensus,
+        'n_participants': n_participants,
+        'n_statements': n_statements,
+        'correlation_matrix': corr,
+    }
+    return results
+
+
+# ══════════════════════════════════════════════════════════════════
+#  DATA LOADING & PROCESSING (original, sin cambios)
 # ══════════════════════════════════════════════════════════════════
 
 @st.cache_data
@@ -152,7 +322,7 @@ def classify_typology(row, t_high, t_low):
 
 
 # ══════════════════════════════════════════════════════════════════
-#  CHART HELPERS
+#  CHART HELPERS (original)
 # ══════════════════════════════════════════════════════════════════
 
 def plotly_defaults(fig, height=460):
@@ -174,7 +344,7 @@ def kpi_html(value, label, sublabel="", color="#4e6af0"):
 
 
 # ══════════════════════════════════════════════════════════════════
-#  SIDEBAR
+#  SIDEBAR (original)
 # ══════════════════════════════════════════════════════════════════
 
 with st.sidebar:
@@ -189,7 +359,7 @@ with st.sidebar:
         st.warning("Low threshold should be < High threshold")
 
 # ══════════════════════════════════════════════════════════════════
-#  LANDING PAGE
+#  LANDING PAGE (original, con una pequeña adición)
 # ══════════════════════════════════════════════════════════════════
 
 if uploaded is None:
@@ -201,6 +371,9 @@ if uploaded is None:
             Upload your survey Excel file using the sidebar to begin. The app reads the <b>DATASET</b> sheet
             and generates interactive analyses across eight diagnostic dimensions to identify strengths,
             gaps, bottlenecks, and priorities in resilience enabling conditions.
+        </p>
+        <p style="color:#8892a8; max-width:580px; margin:1.5rem auto; line-height:1.7;">
+            <b>New:</b> Use the <b>🧩 Q‑Methodology</b> tab to upload Q‑sort data and perform factor analysis.
         </p>
     </div>""", unsafe_allow_html=True)
     st.stop()
@@ -226,7 +399,7 @@ if fdf.empty:
 fdf["Typology"] = fdf.apply(lambda r: classify_typology(r, t_high, t_low), axis=1)
 
 # ══════════════════════════════════════════════════════════════════
-#  TABS
+#  TABS (se añade la nueva pestaña de Q‑Methodology)
 # ══════════════════════════════════════════════════════════════════
 
 tabs = st.tabs([
@@ -238,11 +411,12 @@ tabs = st.tabs([
     "📈 Variability",
     "🎯 Priority & Capacity",
     "🗂 Data Explorer",
-    "📖 Glossary & Scales",
+    "🧩 Q‑Methodology",      # <-- NUEVA PESTAÑA
+    "📖 Glossary & Scales",  # ahora es el índice 9
 ])
 
 # ──────────────────────────────────────────────────────────────────
-#  TAB 0 — INTRODUCTION
+#  TAB 0 — INTRODUCTION (original, se añadió una línea informativa)
 # ──────────────────────────────────────────────────────────────────
 with tabs[0]:
     st.markdown("# 🌍 Introduction to this Diagnostic Tool")
@@ -350,13 +524,14 @@ with tabs[0]:
     <b>📈 Variability</b> — Shows where partners disagreed most, signaling contested or context-dependent factors.<br>
     <b>🎯 Priority & Capacity</b> — Ranks conditions by urgency and measures adaptive efficiency.<br>
     <b>🗂 Data Explorer</b> — Full searchable dataset with download options.<br>
+    <b>🧩 Q‑Methodology</b> — Upload Q‑sort data and perform factor analysis to identify shared viewpoints.<br>
     <b>📖 Glossary & Scales</b> — Complete reference for all metrics, scales, and survey questions.
     </div>
     """, unsafe_allow_html=True)
 
 
 # ──────────────────────────────────────────────────────────────────
-#  TAB 1 — OVERVIEW
+#  TAB 1 — OVERVIEW (original)
 # ──────────────────────────────────────────────────────────────────
 with tabs[1]:
     st.markdown('<div class="sec-head">Global Averages</div>', unsafe_allow_html=True)
@@ -472,7 +647,7 @@ with tabs[1]:
 
 
 # ──────────────────────────────────────────────────────────────────
-#  TAB 2 — GAP ANALYSIS
+#  TAB 2 — GAP ANALYSIS (original)
 # ──────────────────────────────────────────────────────────────────
 with tabs[2]:
     st.markdown('<div class="sec-head">Gap Analysis (Q2 − Q1)</div>', unsafe_allow_html=True)
@@ -581,7 +756,7 @@ with tabs[2]:
 
 
 # ──────────────────────────────────────────────────────────────────
-#  TAB 3 — CATEGORIES
+#  TAB 3 — CATEGORIES (original)
 # ──────────────────────────────────────────────────────────────────
 with tabs[3]:
     st.markdown('<div class="sec-head">Heatmap — Category × Dimension</div>', unsafe_allow_html=True)
@@ -653,7 +828,7 @@ with tabs[3]:
 
 
 # ──────────────────────────────────────────────────────────────────
-#  TAB 4 — TYPOLOGY
+#  TAB 4 — TYPOLOGY (original)
 # ──────────────────────────────────────────────────────────────────
 with tabs[4]:
     st.markdown('<div class="sec-head">Resilience Typology Classification</div>', unsafe_allow_html=True)
@@ -754,7 +929,7 @@ with tabs[4]:
 
 
 # ──────────────────────────────────────────────────────────────────
-#  TAB 5 — VARIABILITY
+#  TAB 5 — VARIABILITY (original)
 # ──────────────────────────────────────────────────────────────────
 with tabs[5]:
     st.markdown('<div class="sec-head">Variability Analysis</div>', unsafe_allow_html=True)
@@ -812,7 +987,7 @@ with tabs[5]:
 
 
 # ──────────────────────────────────────────────────────────────────
-#  TAB 6 — PRIORITY & ADAPTIVE CAPACITY
+#  TAB 6 — PRIORITY & ADAPTIVE CAPACITY (original)
 # ──────────────────────────────────────────────────────────────────
 with tabs[6]:
     st.markdown("""
@@ -904,7 +1079,7 @@ with tabs[6]:
 
 
 # ──────────────────────────────────────────────────────────────────
-#  TAB 7 — DATA EXPLORER
+#  TAB 7 — DATA EXPLORER (original)
 # ──────────────────────────────────────────────────────────────────
 with tabs[7]:
     st.markdown('<div class="sec-head">Full Dataset Explorer</div>', unsafe_allow_html=True)
@@ -969,9 +1144,130 @@ with tabs[7]:
 
 
 # ──────────────────────────────────────────────────────────────────
-#  TAB 8 — GLOSSARY & SCALES
+#  TAB 8 — Q‑METHODOLOGY (NUEVA)
 # ──────────────────────────────────────────────────────────────────
 with tabs[8]:
+    st.markdown('<div class="sec-head">🧩 Q‑Methodology Analysis</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="explain-box">
+    Esta pestaña permite realizar un análisis factorial de Q‑sort. Sube un archivo Excel o CSV con el siguiente formato:
+    <ul>
+    <li>Primera columna: identificador o texto de cada afirmación (36 frases).</li>
+    <li>Columnas siguientes: cada participante (una columna por persona) con sus puntuaciones (de -5 a +5).</li>
+    </ul>
+    El archivo puede tener una hoja llamada <b>QSORT</b> o ser la primera hoja. También puedes subir un CSV con la primera columna como índice.
+    </div>
+    """, unsafe_allow_html=True)
+
+    q_file = st.file_uploader("Subir archivo de Q‑sort", type=["xlsx", "xls", "csv"], key="qfile")
+    if q_file is not None:
+        try:
+            q_data = load_qsort_data(q_file)
+            st.success(f"Datos cargados: {q_data.shape[1]} participantes, {q_data.shape[0]} afirmaciones.")
+
+            with st.expander("Ver vista previa de los datos"):
+                st.dataframe(q_data.head(10))
+
+            # Parámetros del análisis
+            col1, col2 = st.columns(2)
+            with col1:
+                auto_factors = st.checkbox("Seleccionar número de factores automáticamente (eigenvalue > 1)", value=True)
+                if not auto_factors:
+                    n_factors = st.number_input("Número de factores a extraer", min_value=1, max_value=min(10, q_data.shape[1]), value=2)
+                else:
+                    n_factors = None
+            with col2:
+                rotation = st.selectbox("Rotación", ["varimax", "ninguna"], index=0)
+
+            if st.button("Ejecutar análisis Q", type="primary"):
+                with st.spinner("Calculando..."):
+                    results = perform_q_analysis(q_data, n_factors=n_factors, rotation=rotation if rotation != "ninguna" else None)
+
+                # Mostrar resultados
+                st.markdown("---")
+                st.markdown('<div class="sec-head">Resultados del Análisis Factorial</div>', unsafe_allow_html=True)
+
+                # Scree plot
+                fig_scree = go.Figure()
+                fig_scree.add_trace(go.Bar(x=list(range(1, len(results['eigenvals'])+1)), y=results['eigenvals'],
+                                            marker_color=COLORS['q1'], name="Autovalores"))
+                fig_scree.add_hline(y=1, line_dash="dash", line_color="red", annotation_text="Kaiser >1")
+                fig_scree.update_layout(xaxis_title="Factor", yaxis_title="Autovalor",
+                                        title="Diagrama de sedimentación (scree plot)")
+                st.plotly_chart(plotly_defaults(fig_scree, 400), use_container_width=True)
+
+                st.markdown(f"**Número de factores retenidos:** {results['n_factors']}")
+                st.markdown(f"**Varianza explicada por factor:**")
+                for i, var in enumerate(results['explained_var']):
+                    st.markdown(f"- Factor {i+1}: {var:.2f}%")
+
+                # Cargas factoriales
+                st.markdown('<div class="sec-head">Cargas factoriales (participantes × factores)</div>', unsafe_allow_html=True)
+                loadings_disp = results['loadings'].copy()
+                # resaltar cargas altas (>0.5)
+                def highlight_high(val):
+                    color = 'background-color: #d4edda' if abs(val) > 0.5 else ''
+                    return color
+                st.dataframe(loadings_disp.style.applymap(highlight_high).format("{:.3f}"),
+                             use_container_width=True, height=400)
+
+                # Puntuaciones factoriales (z-scores)
+                st.markdown('<div class="sec-head">Puntuaciones factoriales (z-scores) por afirmación</div>', unsafe_allow_html=True)
+                st.dataframe(results['z_scores'].style.format("{:.3f}"), use_container_width=True)
+
+                # Arrays de factores (valores de cuadrícula)
+                st.markdown('<div class="sec-head">Arrays de factores (valores de cuadrícula -5 a +5)</div>', unsafe_allow_html=True)
+                st.dataframe(results['factor_arrays'].style.format("{:.0f}"), use_container_width=True)
+
+                # Afirmaciones distintivas y de consenso
+                st.markdown('<div class="sec-head">Afirmaciones distintivas y de consenso</div>', unsafe_allow_html=True)
+
+                statements = q_data.index.tolist()
+                distinctive_by_factor = {f"Factor {i+1}": [] for i in range(results['n_factors'])}
+                for (f, idx) in results['distinctive']:
+                    distinctive_by_factor[f"Factor {f+1}"].append(statements[idx])
+
+                for factor, stmts in distinctive_by_factor.items():
+                    if stmts:
+                        st.markdown(f"**{factor}** (distintivas):")
+                        for s in stmts:
+                            st.markdown(f"- {s}")
+
+                if results['consensus']:
+                    st.markdown("**Afirmaciones de consenso** (todos los factores coinciden):")
+                    for idx in results['consensus']:
+                        st.markdown(f"- {statements[idx]}")
+
+                # Gráfico comparativo de z-scores
+                st.markdown('<div class="sec-head">Perfil de puntuaciones factoriales</div>', unsafe_allow_html=True)
+                fig_z = go.Figure()
+                for i in range(results['n_factors']):
+                    fig_z.add_trace(go.Scatter(x=list(range(len(statements))),
+                                                y=results['z_scores'].iloc[:, i],
+                                                mode='lines+markers',
+                                                name=f"Factor {i+1}"))
+                fig_z.update_layout(xaxis_title="Afirmación (índice)", yaxis_title="z-score")
+                st.plotly_chart(plotly_defaults(fig_z, 500), use_container_width=True)
+
+                # Opción de descarga
+                output = BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    results['loadings'].to_excel(writer, sheet_name='Loadings')
+                    results['z_scores'].to_excel(writer, sheet_name='Z_scores')
+                    results['factor_arrays'].to_excel(writer, sheet_name='Factor_arrays')
+                st.download_button("⬇️ Descargar resultados completos (Excel)", output.getvalue(),
+                                   file_name="q_analysis_results.xlsx")
+
+        except Exception as e:
+            st.error(f"Error al procesar el archivo: {e}")
+    else:
+        st.info("Por favor, sube un archivo de Q‑sort para comenzar.")
+
+
+# ──────────────────────────────────────────────────────────────────
+#  TAB 9 — GLOSSARY & SCALES (original, ahora en índice 9)
+# ──────────────────────────────────────────────────────────────────
+with tabs[9]:
     st.markdown("# 📖 Glossary, Scales & Survey Reference")
     st.markdown("")
 
