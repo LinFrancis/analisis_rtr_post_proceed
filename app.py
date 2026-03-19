@@ -368,8 +368,7 @@ with tabs[1]:
     st.markdown('<div class="sec-head">Top 10 Bottleneck Gaps</div>', unsafe_allow_html=True)
     top10 = fdf.nlargest(10, "Gap")[["Category", "Sub Categories", "Main Idea", "Q1 Mean", "Q2 Mean", "Q3 Mean", "Gap", "Resolution Gap", "System Stress"]]
     st.dataframe(
-        top10.style.background_gradient(subset=["Gap"], cmap="OrRd")
-             .format({c: "{:.2f}" for c in ["Q1 Mean", "Q2 Mean", "Q3 Mean", "Gap", "Resolution Gap", "System Stress"]}),
+        top10.style.format({c: "{:.2f}" for c in ["Q1 Mean", "Q2 Mean", "Q3 Mean", "Gap", "Resolution Gap", "System Stress"]}),
         use_container_width=True, hide_index=True,
     )
 
@@ -541,8 +540,7 @@ with tabs[4]:
         high_var = fdf[fdf[cv_col] >= cv_threshold][["Category", "Sub Categories", "Main Idea", mean_col, sd_col, cv_col]]
         high_var = high_var.sort_values(cv_col, ascending=False)
         st.dataframe(
-            high_var.style.background_gradient(subset=[cv_col], cmap="YlOrRd")
-                .format({c: "{:.3f}" for c in [mean_col, sd_col, cv_col]}),
+            high_var.style.format({c: "{:.3f}" for c in [mean_col, sd_col, cv_col]}),
             use_container_width=True, hide_index=True,
         )
     else:
