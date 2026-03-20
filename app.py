@@ -112,12 +112,11 @@ def interpret_q3(val):
 
 
 # ══════════════════════════════════════════════════════════════════
-#  FUNCIONES PARA EL ANÁLISIS DE Q‑METHODOLOGY (MEJORADAS)
+#  FUNCIONES PARA EL ANÁLISIS DE Q‑METHODOLOGY (CORREGIDAS)
 # ══════════════════════════════════════════════════════════════════
 
-# --- Rotaciones ortogonales adicionales ---
+# --- Rotaciones ---
 def varimax(loadings, normalize=True, eps=1e-6):
-    """Rotación Varimax (ortogonal)"""
     n_rows, n_cols = loadings.shape
     if n_cols < 2:
         return loadings, np.eye(n_cols)
@@ -142,7 +141,6 @@ def varimax(loadings, normalize=True, eps=1e-6):
     return rotated, rotmat
 
 def quartimax(loadings, normalize=True, eps=1e-6):
-    """Rotación Quartimax (ortogonal) - maximiza la varianza de las filas"""
     n_rows, n_cols = loadings.shape
     if n_cols < 2:
         return loadings, np.eye(n_cols)
@@ -157,7 +155,6 @@ def quartimax(loadings, normalize=True, eps=1e-6):
     for _ in range(50):
         old_d = d
         L = np.dot(scaled_loadings, rotmat)
-        # Quartimax: maximizar suma de cuartas potencias de las cargas
         B = np.dot(L.T, L**3)
         U, s, Vh = np.linalg.svd(B)
         rotmat = np.dot(U, Vh)
@@ -168,7 +165,6 @@ def quartimax(loadings, normalize=True, eps=1e-6):
     return rotated, rotmat
 
 def equamax(loadings, normalize=True, eps=1e-6):
-    """Rotación Equamax (ortogonal) - compromiso entre Varimax y Quartimax"""
     n_rows, n_cols = loadings.shape
     if n_cols < 2:
         return loadings, np.eye(n_cols)
@@ -183,7 +179,6 @@ def equamax(loadings, normalize=True, eps=1e-6):
     for _ in range(50):
         old_d = d
         L = np.dot(scaled_loadings, rotmat)
-        # Equamax: combina criterios de Varimax y Quartimax
         B = np.dot(L.T, (L**3 - np.dot(L, np.diag(np.sum(L**2, axis=0)) / (2*n_rows))))
         U, s, Vh = np.linalg.svd(B)
         rotmat = np.dot(U, Vh)
@@ -194,15 +189,11 @@ def equamax(loadings, normalize=True, eps=1e-6):
     return rotated, rotmat
 
 def promax(loadings, power=3, normalize=True):
-    """Rotación Promax (oblicua). power típico = 3 o 4."""
     n_rows, n_cols = loadings.shape
     if n_cols < 2:
         return loadings, np.eye(n_cols)
-    # Primero rotación varimax para obtener una base ortogonal
     loadings_rot, rotmat_var = varimax(loadings, normalize=normalize)
-    # Crear matriz objetivo: elevar las cargas al cubo (manteniendo signo)
     target = np.sign(loadings_rot) * (np.abs(loadings_rot) ** power)
-    # Resolver para la matriz de transformación oblicua
     from scipy.linalg import lstsq
     Phi, _, _, _ = lstsq(loadings_rot, target)
     loadings_promax = np.dot(loadings, Phi)
@@ -220,7 +211,7 @@ def load_q_from_excel(file, question):
         statements_df: DataFrame con columnas ['Statement', 'Category'] para cada afirmación
         q_data: DataFrame con índices = afirmaciones, columnas = participantes, valores = puntuaciones
     """
-    # Leer DATASET para obtener las afirmaciones en orden y sus categorías
+    # Leer DATASET para obtener las afirmaciones y sus categorías
     df_dataset = pd.read_excel(file, sheet_name="DATASET")
     df_dataset.columns = df_dataset.columns.str.strip()
     statements_df = df_dataset[["Statement", "Category"]].dropna().copy()
@@ -229,10 +220,27 @@ def load_q_from_excel(file, question):
     sheet_map = {"Q1": "QUESTION 1", "Q2": "QUESTION 2", "Q3": "QUESTION 3"}
     sheet_name = sheet_map[question]
     
-    # Leer la hoja de respuestas individuales con header=1 (fila 2 tiene nombres de partners)
+    # Leer la hoja de respuestas individuales con header=1 (la fila 2 tiene los nombres de los partners)
     df_resp = pd.read_excel(file, sheet_name=sheet_name, header=1)
-    # Las columnas esperadas: Category, Statement, Sub-category, luego los partners
-    partner_cols = df_resp.columns[3:]
+    
+    # Identificar las columnas que son de partners (excluir las tres primeras y las de estadísticos)
+    # Las columnas de estadísticos comienzan con "MEAN BY STATEMENT", "N Partners Responded", etc.
+    # Vamos a tomar todas las columnas desde la cuarta hasta justo antes de "MEAN BY STATEMENT"
+    all_cols = df_resp.columns.tolist()
+    # Las tres primeras son: Category, Statement, Sub-category (a veces Sub-category puede no estar, pero en tu archivo sí)
+    # Encontramos el índice de la columna "MEAN BY STATEMENT" (si existe) para cortar allí
+    mean_col_index = None
+    for i, col in enumerate(all_cols):
+        if "MEAN BY STATEMENT" in str(col):
+            mean_col_index = i
+            break
+    if mean_col_index is None:
+        # Si no se encuentra, tomamos todas las columnas después de las tres primeras (menos robusto)
+        partner_cols = all_cols[3:]
+    else:
+        partner_cols = all_cols[3:mean_col_index]
+    
+    # Seleccionar solo esas columnas
     df_partners = df_resp[partner_cols].copy()
     
     # Asegurar que el número de filas coincida con el número de afirmaciones
@@ -245,7 +253,7 @@ def load_q_from_excel(file, question):
     # Establecer el índice como las afirmaciones
     df_partners.index = statements_df["Statement"].tolist()
     
-    # Eliminar participantes (columnas) que tengan algún NaN
+    # Eliminar participantes (columnas) que tengan algún NaN (en Q methodology no se permiten missing)
     participantes_validos = df_partners.columns[df_partners.isna().sum() == 0]
     df_clean = df_partners[participantes_validos]
     
@@ -484,7 +492,7 @@ if fdf.empty:
 fdf["Typology"] = fdf.apply(lambda r: classify_typology(r, t_high, t_low), axis=1)
 
 # ══════════════════════════════════════════════════════════════════
-#  TABS (ahora 10 pestañas)
+#  TABS
 # ══════════════════════════════════════════════════════════════════
 
 tabs = st.tabs([
@@ -616,47 +624,46 @@ with tabs[0]:
 
 
 # ──────────────────────────────────────────────────────────────────
-#  TABS 1 a 7 (originales) - deben estar completos con tu código original.
-#  Por brevedad, aquí se indica el lugar, pero en el archivo final deben incluirse.
+#  TABS 1 a 7 (originales) - Debes insertar aquí tu código original
 # ──────────────────────────────────────────────────────────────────
 with tabs[1]:
     # (Código original de Overview)
     st.markdown("### Overview tab content (original)")
-    # ... pega aquí tu código existente ...
+    # Pega aquí tu código existente para Overview
 
 with tabs[2]:
     # (Código original de Gap Analysis)
     st.markdown("### Gap Analysis tab content (original)")
-    # ... pega aquí tu código existente ...
+    # Pega aquí tu código existente para Gap Analysis
 
 with tabs[3]:
     # (Código original de Categories)
     st.markdown("### Categories tab content (original)")
-    # ... pega aquí tu código existente ...
+    # Pega aquí tu código existente para Categories
 
 with tabs[4]:
     # (Código original de Typology)
     st.markdown("### Typology tab content (original)")
-    # ... pega aquí tu código existente ...
+    # Pega aquí tu código existente para Typology
 
 with tabs[5]:
     # (Código original de Variability)
     st.markdown("### Variability tab content (original)")
-    # ... pega aquí tu código existente ...
+    # Pega aquí tu código existente para Variability
 
 with tabs[6]:
     # (Código original de Priority & Capacity)
     st.markdown("### Priority & Capacity tab content (original)")
-    # ... pega aquí tu código existente ...
+    # Pega aquí tu código existente para Priority & Capacity
 
 with tabs[7]:
     # (Código original de Data Explorer)
     st.markdown("### Data Explorer tab content (original)")
-    # ... pega aquí tu código existente ...
+    # Pega aquí tu código existente para Data Explorer
 
 
 # ──────────────────────────────────────────────────────────────────
-#  TAB 8 — Q‑METHODOLOGY (CON FILTRO POR CATEGORÍA)
+#  TAB 8 — Q‑METHODOLOGY (CORREGIDO, CON FILTRO POR CATEGORÍA)
 # ──────────────────────────────────────────────────────────────────
 with tabs[8]:
     st.markdown('<div class="sec-head">🧩 Q‑Methodology Analysis</div>', unsafe_allow_html=True)
@@ -675,11 +682,12 @@ with tabs[8]:
     <br><br>
     <b>How to use this tab:</b> Select which question (Q1, Q2, or Q3) you want to analyze – each represents a
     different rating dimension (observation, criticality, resolution). The app will automatically extract
-    the individual partner responses from the corresponding <b>QUESTION</b> sheet. Then you can filter by one or more
-    categories to focus on specific thematic areas. Partners with incomplete data (any "NR" values) are excluded.
-    You can then choose the number of factors to extract (or let the Kaiser criterion decide), select a rotation method,
-    and run the analysis. The output includes factor loadings, z‑scores, factor arrays (the reconstructed Q‑sort for each factor),
-    and lists of distinguishing and consensus statements.
+    the individual partner responses from the corresponding <b>QUESTION</b> sheet, excluding any summary statistics.
+    Then you can filter by one or more categories to focus on specific thematic areas. Partners with incomplete
+    data (any "NR" values) are excluded. You can then choose the number of factors to extract (or let the Kaiser
+    criterion decide), select a rotation method, and run the analysis. The output includes factor loadings,
+    z‑scores, factor arrays (the reconstructed Q‑sort for each factor), and lists of distinguishing and consensus
+    statements.
     </div>
     """, unsafe_allow_html=True)
 
@@ -695,7 +703,7 @@ with tabs[8]:
     q_choice = st.radio("Select question for Q‑analysis", ["Q1", "Q2", "Q3"], horizontal=True,
                         format_func=lambda x: f"{x} – " + {"Q1": "Observation (0-4)", "Q2": "Criticality (0-5)", "Q3": "Resolution (0-5)"}[x])
 
-    # Botón para cargar datos (solo si cambia la pregunta o no hay datos)
+    # Botón para cargar datos
     if st.button("Load data", type="primary") or (st.session_state.q_data_full is not None and st.session_state.q_choice != q_choice):
         with st.spinner("Extracting data..."):
             try:
@@ -780,7 +788,7 @@ with tabs[8]:
             for i, var in enumerate(results['explained_var']):
                 st.markdown(f"- Factor {i+1}: {var:.2f}%")
 
-            # Factor loadings
+            # Factor loadings (participantes)
             st.markdown('<div class="sec-head">Factor Loadings (participants × factors)</div>', unsafe_allow_html=True)
             loadings_disp = results['loadings'].copy()
             def highlight_high(val):
